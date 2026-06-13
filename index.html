@@ -342,6 +342,14 @@ select.input{cursor:pointer;appearance:none;}
   <!-- CONTENT -->
   <div id="content" style="padding:16px 20px 110px;position:relative;z-index:1;"></div>
 
+  <!-- PATIENT MODAL -->
+  <div id="patient-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;" onclick="closeModal(event)">
+    <div id="modal-content" style="background:linear-gradient(145deg,#f0f2f0,#e8ecee);border-radius:28px 28px 0 0;width:100%;max-width:480px;padding:24px;max-height:85vh;overflow-y:auto;box-shadow:0 -8px 40px rgba(0,0,0,0.20);">
+      <div style="width:36px;height:4px;background:rgba(0,0,0,0.12);border-radius:2px;margin:0 auto 20px;"></div>
+      <div id="modal-body"></div>
+    </div>
+  </div>
+
   <!-- NAV -->
   <nav class="nav">
     <button class="nav-btn active" id="nav-inicio" onclick="showTab('inicio')">
@@ -405,16 +413,26 @@ let confirmDeleteId = null;
 let confirmDeleteHospId = null;
 // Load from localStorage
 function loadState(){
-  try{ return JSON.parse(localStorage.getItem('medreconcile_state'))||{}; }catch{ return {}; }
+  try{
+    const s = localStorage.getItem('medreconcile_state');
+    if(!s) return {};
+    const data = JSON.parse(s);
+    console.log('[MedReconcile] Loaded:', data.patients?.length||0, 'patients');
+    return data;
+  }catch(e){ console.error('Load error:', e); return {}; }
 }
 function saveState(){
-  try{ localStorage.setItem('medreconcile_state', JSON.stringify({
-    hospitals: state.hospitals,
-    patients: state.patients,
-    profile: state.profile,
-    activeHosp: state.activeHosp
-  })); }catch{}
-  saveToFirebase(); // Sincroniza com Firebase
+  try{
+    const data = {
+      hospitals: state.hospitals,
+      patients: state.patients,
+      profile: state.profile,
+      activeHosp: state.activeHosp
+    };
+    localStorage.setItem('medreconcile_state', JSON.stringify(data));
+    console.log('[MedReconcile] Saved:', state.patients.length, 'patients');
+  }catch(e){ console.error('Save error:', e); }
+  saveToFirebase();
 }
 const _saved = loadState();
 
@@ -430,6 +448,8 @@ const state = {
   concilPreview: null,
   showManualConcil: false,
   showResetConfirm: false,
+  expandId: null,
+  modalPatient: null,
   editId: null,
   mesFiltro: 'TODOS',
   batchPreview: null,
@@ -772,28 +792,58 @@ function renderAtendimentos(){
       <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
         <div class="lbl">Pacientes a Receber (${pendentes.length})</div>
       </div>
-      ${pendentes.map(a=>`
-      <div class="glass anim-up" style="padding:14px 16px;margin-bottom:10px;border-left:3px solid var(--orange);">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;">
-          <div style="flex:1;min-width:0;margin-right:12px;">
-            <div style="font-weight:900;font-size:15px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.nome}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:3px;display:flex;align-items:center;gap:6px;">
-              <span style="font-weight:700;">ID: ${a.atendimento}</span><span style="opacity:.4;">|</span><span>${fmtDt(a.data)}</span>
+      ${pendentes.map(a=>{
+        const exp = state.expandId === a.id;
+        return `
+        <div class="glass anim-up" style="margin-bottom:10px;border-left:3px solid var(--orange);overflow:hidden;">
+          <div style="padding:14px 16px;display:flex;justify-content:space-between;align-items:center;">
+            <div style="flex:1;min-width:0;margin-right:10px;">
+              <div onclick="openPatientModal('${a.id}')" style="font-weight:900;font-size:15px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;cursor:pointer;">${a.nome}</div>
+              <div style="font-size:12px;color:var(--text3);margin-top:3px;">
+                ID: <span style="font-weight:700;">${a.atendimento}</span>
+                ${a.convenio?' · <span style="color:var(--lead);font-weight:700;">'+a.convenio+'</span>':''}
+              </div>
             </div>
-            ${a.convenio?`<span class="badge-l" style="margin-top:4px;">${a.convenio}</span>`:''}
+            <button onclick="state.expandId=state.expandId==='${a.id}'?null:'${a.id}';render();"
+              style="padding:8px 13px;border-radius:12px;border:1px solid rgba(0,0,0,0.08);
+              background:rgba(255,255,255,0.60);color:var(--text3);font-size:15px;cursor:pointer;
+              font-family:inherit;font-weight:900;flex-shrink:0;">
+              ${exp?'▲':'···'}
+            </button>
           </div>
-          <div style="text-align:right;flex-shrink:0;">
-            <div style="font-weight:900;font-size:16px;color:var(--text);">${fmtBRL(a.valor)}</div>
-            <div style="display:flex;gap:6px;margin-top:8px;justify-content:flex-end;">
-              <button style="padding:7px 12px;border-radius:11px;border:none;font-size:12px;font-weight:800;font-family:inherit;cursor:pointer;
-                background:linear-gradient(135deg,#35d46e,#1a8f45);color:#fff;box-shadow:0 3px 10px rgba(46,200,102,0.35);"
-                onclick="markPaid('${a.id}')">✓ Pago</button>
-              <button class="btn-g" style="padding:7px 10px;font-size:13px;" onclick="editPatient('${a.id}')">✎</button>
-              <button class="btn-d" style="padding:7px 10px;font-size:13px;" onclick="removePatient('${a.id}')">🗑</button>
+          ${exp?`
+          <div style="padding:0 16px 16px;border-top:1px solid rgba(0,0,0,0.06);">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0 14px;">
+              <div style="background:rgba(255,255,255,0.65);border-radius:12px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Paciente</div>
+                <div style="font-size:13px;font-weight:800;color:var(--text);margin-top:3px;word-break:break-word;">${a.nome||'—'}</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.65);border-radius:12px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Atendimento</div>
+                <div style="font-size:13px;font-weight:800;color:var(--text);margin-top:3px;">${a.atendimento||'—'}</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.65);border-radius:12px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Convênio</div>
+                <div style="font-size:13px;font-weight:800;color:var(--text);margin-top:3px;">${a.convenio||'—'}</div>
+              </div>
+              <div style="background:rgba(255,255,255,0.65);border-radius:12px;padding:10px 12px;">
+                <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Data</div>
+                <div style="font-size:13px;font-weight:800;color:var(--text);margin-top:3px;">${fmtDt(a.data)}</div>
+              </div>
             </div>
-          </div>
-        </div>
-      </div>`).join('')}
+            <div style="display:flex;gap:8px;">
+              ${confirmDeleteId===a.id?
+                '<button onclick="confirmDeleteId=null;render();" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;cursor:pointer;background:rgba(255,255,255,0.70);color:var(--lead);font-family:inherit;">Cancelar</button>'+
+                '<button onclick="removePatient(''+a.id+'')" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;cursor:pointer;background:var(--red);color:#fff;font-family:inherit;">Apagar</button>'
+                :
+                '<button onclick="markPaid(''+a.id+'')" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;font-family:inherit;cursor:pointer;background:linear-gradient(135deg,#35d46e,#1a8f45);color:#fff;">✓ Pago</button>'+
+                '<button onclick="editPatient(''+a.id+'')" style="padding:11px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.70);background:rgba(255,255,255,0.58);color:var(--lead);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">✎</button>'+
+                '<button onclick="askDelete(''+a.id+'')" style="padding:11px 14px;border-radius:12px;border:1px solid rgba(217,64,64,0.14);background:rgba(217,64,64,0.07);color:var(--red);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">🗑</button>'
+              }
+            </div>
+          </div>`:''}
+        </div>`;
+      }).join('')}
     </div>`:''}
 
     ${pagos.length>0?`
@@ -986,10 +1036,10 @@ Retorne TODOS os pacientes em um array, mesmo que sejam 10 ou 20.`,
     if(!pacientes.length){ toast('Nenhum paciente identificado na imagem','error'); return; }
 
     state.batchPreview = pacientes.map(p=>({
-      nome: p.nome_paciente || p.nome || '',
-      atendimento: p.numero_atendimento || p.atendimento || '',
-      convenio: p.convenio || '',
-      data: p.data_atendimento || p.data || today()
+      nome: p.nome_paciente || p.nome || p.paciente || '',
+      atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
+      convenio: p.convenio || p.plano || p.plano_saude || p.nome_convenio || '',
+      data: p.data_atendimento || p.data_internacao || p.data || today()
     })).filter(p=>p.nome||p.atendimento);
 
     // Remove mensagem de progresso
@@ -1020,9 +1070,12 @@ function fakeScanning(){
 }
 function confirmarLote(){
   if(!state.batchPreview)return;
+  const total = state.batchPreview.length;
   state.batchPreview.forEach(p=>state.patients.push({id:uid(),hospId:state.activeHosp,...p,valor:0,status:'PENDENTE'}));
-  toast(`${state.batchPreview.length} pacientes salvos!`,'success');
-  state.batchPreview=null;render();
+  saveState();
+  state.batchPreview=null;
+  render();
+  toast(`✓ ${total} pacientes salvos!`,'success');
 }
 
 // ── AUDITAGEM ─────────────────────────────────────────────────────────────────
@@ -1675,6 +1728,56 @@ async function testIA(){
 }
 
 function bindEvents(){}
+
+function openPatientModal(id){
+  const p = state.patients.find(x=>x.id===id);
+  if(!p) return;
+  const modal = document.getElementById('patient-modal');
+  const body = document.getElementById('modal-body');
+  modal.style.display='flex';
+  body.innerHTML = `
+    <div style="font-size:18px;font-weight:900;color:var(--text);margin-bottom:4px;">${p.nome}</div>
+    <div style="font-size:12px;color:${p.status==='PAGO'?'var(--green2)':'var(--orange)'};font-weight:800;margin-bottom:20px;">
+      ${p.status==='PAGO'?'✓ Pago':'● Pendente'}
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
+      ${[
+        ['Nº Atendimento', p.atendimento||'—'],
+        ['Convênio', p.convenio||'—'],
+        ['Data Atend.', fmtDt(p.data)],
+        ['Status', p.status==='PAGO'?'Pago':'Pendente'],
+      ].map(([l,v])=>`
+        <div style="background:rgba(255,255,255,0.70);border-radius:14px;padding:12px 14px;">
+          <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">${l}</div>
+          <div style="font-size:14px;font-weight:800;color:var(--text);margin-top:4px;">${v}</div>
+        </div>`).join('')}
+    </div>
+    <div style="display:flex;gap:8px;">
+      ${p.status!=='PAGO'?`
+        <button onclick="markPaid('${p.id}');closeModal();" style="flex:1;padding:14px;border-radius:14px;border:none;font-size:14px;font-weight:800;font-family:inherit;cursor:pointer;background:linear-gradient(135deg,#35d46e,#1a8f45);color:#fff;">✓ Marcar como Pago</button>
+      `:''}
+      <button onclick="closeModal();editPatientInline('${p.id}');" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(255,255,255,0.70);background:rgba(255,255,255,0.58);color:var(--lead);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">✎ Editar</button>
+      <button onclick="closeModal();askDelete('${p.id}');" style="padding:14px 16px;border-radius:14px;border:1px solid rgba(217,64,64,0.14);background:rgba(217,64,64,0.07);color:var(--red);font-size:14px;font-weight:700;cursor:pointer;font-family:inherit;">🗑</button>
+    </div>
+  `;
+}
+
+function closeModal(e){
+  if(e && e.target !== document.getElementById('patient-modal')) return;
+  document.getElementById('patient-modal').style.display='none';
+}
+
+function editPatientInline(id){
+  state.editId=id;
+  state.showForm=true;
+  state.showRelatorio=false;
+  render();
+  // Scroll to the form immediately
+  setTimeout(()=>{
+    const form = document.querySelector('.glass[style*="border-left:3px solid var(--green)"]');
+    if(form) form.scrollIntoView({behavior:'smooth',block:'start'});
+  },100);
+}
 
 // ── PIN LOGIN ─────────────────────────────────────────────────────────────────
 const CORRECT_PIN = (loadState().profile && loadState().profile.appPassword) || '123456';
