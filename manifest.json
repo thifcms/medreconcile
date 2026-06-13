@@ -2,7 +2,7 @@
   "name": "MedReconcile",
   "short_name": "MedReconcile",
   "description": "Auditoria médica inteligente",
-  "start_url": "/",
+  "start_url": "/medreconcile/",
   "display": "standalone",
   "background_color": "#eceef0",
   "theme_color": "#2ec866",
