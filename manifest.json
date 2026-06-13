@@ -1,0 +1,18 @@
+{
+  "name": "MedReconcile",
+  "short_name": "MedReconcile",
+  "description": "Auditoria médica inteligente",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#eceef0",
+  "theme_color": "#2ec866",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "icon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
