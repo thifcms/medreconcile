@@ -21,6 +21,13 @@
   const auth = getAuth(app);
   const db = getFirestore(app, "ai-studio-07b01720-0a41-4e0a-89f7-93e327ec5916");
   const provider = new GoogleAuthProvider();
+  provider.addScope('https://www.googleapis.com/auth/drive.file');
+
+  let _driveToken = localStorage.getItem('med_drive_token');
+  window.setDriveToken = (t) => { _driveToken = t; t ? localStorage.setItem('med_drive_token', t) : localStorage.removeItem('med_drive_token'); };
+  window.getDriveToken = () => _driveToken;
+  window.GoogleAuthProvider = GoogleAuthProvider;
+  window.signInWithPopup = signInWithPopup;
 
   window.fbAuth = auth;
   window.fbDb = db;
@@ -689,7 +696,7 @@ function renderAtendimentos(){
         </label>
         <label class="btn-g" style="padding:13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;border-radius:14px;">
           🖼 Galeria
-          <input type="file" accept="image/*,application/pdf" style="display:none;" onchange="handleCamera(this)">
+          <input type="file" accept="image/*,application/pdf" multiple style="display:none;" onchange="handleCamera(this)">
         </label>
         <label class="btn-g" style="padding:13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;border-radius:14px;">
           📊 Excel
@@ -832,14 +839,14 @@ function renderAtendimentos(){
               </div>
             </div>
             <div style="display:flex;gap:8px;">
-              ${confirmDeleteId===a.id?
-                '<button onclick="confirmDeleteId=null;render();" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;cursor:pointer;background:rgba(255,255,255,0.70);color:var(--lead);font-family:inherit;">Cancelar</button>'+
-                '<button onclick="removePatient(''+a.id+'')" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;cursor:pointer;background:var(--red);color:#fff;font-family:inherit;">Apagar</button>'
-                :
-                '<button onclick="markPaid(''+a.id+'')" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;font-family:inherit;cursor:pointer;background:linear-gradient(135deg,#35d46e,#1a8f45);color:#fff;">✓ Pago</button>'+
-                '<button onclick="editPatient(''+a.id+'')" style="padding:11px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.70);background:rgba(255,255,255,0.58);color:var(--lead);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">✎</button>'+
-                '<button onclick="askDelete(''+a.id+'')" style="padding:11px 14px;border-radius:12px;border:1px solid rgba(217,64,64,0.14);background:rgba(217,64,64,0.07);color:var(--red);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">🗑</button>'
-              }
+              ${confirmDeleteId===a.id?`
+                <button onclick="confirmDeleteId=null;render();" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;cursor:pointer;background:rgba(255,255,255,0.70);color:var(--lead);font-family:inherit;">Cancelar</button>
+                <button onclick="removePatient('${a.id}')" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;cursor:pointer;background:var(--red);color:#fff;font-family:inherit;">Apagar</button>
+              `:`
+                <button onclick="markPaid('${a.id}')" style="flex:1;padding:11px;border-radius:12px;border:none;font-size:13px;font-weight:800;font-family:inherit;cursor:pointer;background:linear-gradient(135deg,#35d46e,#1a8f45);color:#fff;">✓ Pago</button>
+                <button onclick="editPatient('${a.id}')" style="padding:11px 14px;border-radius:12px;border:1px solid rgba(255,255,255,0.70);background:rgba(255,255,255,0.58);color:var(--lead);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">✎</button>
+                <button onclick="askDelete('${a.id}')" style="padding:11px 14px;border-radius:12px;border:1px solid rgba(217,64,64,0.14);background:rgba(217,64,64,0.07);color:var(--red);font-size:13px;font-weight:700;cursor:pointer;font-family:inherit;">🗑</button>
+              `}
             </div>
           </div>`:''}
         </div>`;
@@ -932,53 +939,57 @@ async function handleExcelImport(input){
 }
 
 async function handleCamera(input){
-  const file = input.files[0];
-  if(!file) return;
-  toast('Inicializando Audit AI...','info');
-  
-  try {
-    // Converte imagem para base64
-    const base64 = await new Promise((res,rej)=>{
-      const r = new FileReader();
-      r.onload = ()=>res(r.result.split(',')[1]);
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
+  const files = Array.from(input.files||[]);
+  if(!files.length) return;
 
-    // Mensagem de progresso que fica até terminar
-    const toastId = Date.now();
-    const toastEl = document.createElement('div');
-    toastEl.id = 'scan-toast';
-    toastEl.className = 'toast toast-info';
-    toastEl.style.cssText = 'pointer-events:auto;';
-    toastEl.innerHTML = '<span>⏳</span><div><div style="font-weight:800;">Analisando etiquetas com IA...</div><div id="scan-msg" style="font-size:11px;opacity:.7;margin-top:2px;">Processando imagem...</div></div>';
-    document.getElementById('toasts').appendChild(toastEl);
-    
-    // Mensagens progressivas enquanto aguarda
-    const msgs = [
-      'Identificando pacientes...',
-      'Lendo convênios e atendimentos...',
-      'Extraindo dados das etiquetas...',
-      'Quase lá, finalizando análise...',
-      'A IA ainda está processando...',
-      'Imagens com muitas etiquetas podem demorar mais...',
-      'Aguarde, processando lote completo...'
-    ];
-    let msgIdx = 0;
-    const msgInterval = setInterval(()=>{
-      const msgEl = document.getElementById('scan-msg');
-      if(msgEl){ msgEl.textContent = msgs[msgIdx % msgs.length]; msgIdx++; }
-    }, 5000);
-    toastEl._interval = msgInterval;
-    
-    const response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
-      method: 'POST',
-      headers: { 'Accept':'application/json', 'Content-Type': 'application/json', 'x-api-key': AI_KEY },
-      body: JSON.stringify({
-        fileBase64: base64,
-        filename: file.name || 'etiqueta.jpg',
-        mimeType: file.type || 'image/jpeg',
-        prompt: `Analise esta imagem com atenção. Ela pode conter UMA ou VÁRIAS etiquetas hospitalares.
+  // Mensagem de progresso persistente
+  const toastEl = document.createElement('div');
+  toastEl.id = 'scan-toast';
+  toastEl.className = 'toast toast-info';
+  toastEl.style.cssText = 'pointer-events:auto;';
+  toastEl.innerHTML = '<span>⏳</span><div><div style="font-weight:800;">Analisando com IA...</div><div id="scan-msg" style="font-size:11px;opacity:.7;margin-top:2px;">Processando imagem...</div></div>';
+  document.getElementById('toasts').appendChild(toastEl);
+
+  const msgs = [
+    'Identificando pacientes...',
+    'Lendo convênios e atendimentos...',
+    'Extraindo dados das etiquetas...',
+    'Quase lá, finalizando análise...',
+    'A IA ainda está processando...',
+    'Imagens com muitas etiquetas podem demorar mais...',
+    'Aguarde, processando lote completo...'
+  ];
+  let msgIdx = 0;
+  const msgInterval = setInterval(()=>{
+    const msgEl = document.getElementById('scan-msg');
+    if(msgEl){ msgEl.textContent = msgs[msgIdx % msgs.length]; msgIdx++; }
+  }, 5000);
+  toastEl._interval = msgInterval;
+
+  const allPacientes = [];
+
+  try {
+    for(let fi=0; fi<files.length; fi++){
+      const file = files[fi];
+      const msgEl0 = document.getElementById('scan-msg');
+      if(msgEl0 && files.length>1) msgEl0.textContent = `Processando foto ${fi+1} de ${files.length}...`;
+
+      // Converte imagem para base64
+      const base64 = await new Promise((res,rej)=>{
+        const r = new FileReader();
+        r.onload = ()=>res(r.result.split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+
+      const response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
+        method: 'POST',
+        headers: { 'Accept':'application/json', 'Content-Type': 'application/json', 'x-api-key': AI_KEY },
+        body: JSON.stringify({
+          fileBase64: base64,
+          filename: file.name || 'etiqueta.jpg',
+          mimeType: file.type || 'image/jpeg',
+          prompt: `Analise esta imagem com atenção. Ela pode conter UMA ou VÁRIAS etiquetas hospitalares.
 IMPORTANTE: Extraia TODOS os pacientes visíveis na imagem, não apenas o primeiro.
 Para CADA paciente encontrado, retorne um objeto no array "pacientes" com:
 - nome_paciente: nome completo do paciente
@@ -987,70 +998,74 @@ Para CADA paciente encontrado, retorne um objeto no array "pacientes" com:
 - data_atendimento: data do atendimento
 
 Retorne TODOS os pacientes em um array, mesmo que sejam 10 ou 20.`,
-        schema: {
-          type: 'object',
-          properties: {
-            pacientes: {
-              type: 'array',
-              items: {
-                type: 'object',
-                properties: {
-                  nome_paciente: {type:'string'},
-                  numero_atendimento: {type:'string'},
-                  convenio: {type:'string'},
-                  data_atendimento: {type:'string'}
+          schema: {
+            type: 'object',
+            properties: {
+              pacientes: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    nome_paciente: {type:'string'},
+                    numero_atendimento: {type:'string'},
+                    convenio: {type:'string'},
+                    data_atendimento: {type:'string'}
+                  }
                 }
-              }
-            },
-            total_encontrados: {type:'number'}
+              },
+              total_encontrados: {type:'number'}
+            }
           }
-        }
-      })
-    });
+        })
+      });
 
-    if(!response.ok) throw new Error('Erro '+response.status);
-    
-    const data = await response.json();
-    const a = data.analysis || data.data || data;
-    
-    // Suporta tanto lista quanto registro único
-    // Formato do Audit AI: { success, data: { etiquetas: [...] } }
-    let pacientes = [];
-    const dataNode = a.data || a; // suporta resposta com ou sem nó 'data'
-    
-    if(dataNode.etiquetas && Array.isArray(dataNode.etiquetas) && dataNode.etiquetas.length > 0){
-      pacientes = dataNode.etiquetas; // formato principal do Audit AI
-    } else if(dataNode.pacientes && Array.isArray(dataNode.pacientes)){
-      pacientes = dataNode.pacientes;
-    } else if(Array.isArray(dataNode)){
-      pacientes = dataNode;
-    } else if(dataNode.nome_paciente || dataNode.nome){
-      pacientes = [dataNode]; // único paciente
-    } else {
-      // Tenta encontrar qualquer array na resposta
-      const arr = Object.values(dataNode).find(v => Array.isArray(v) && v.length > 0);
-      if(arr) pacientes = arr;
-    }
-    console.log('[MedReconcile] Pacientes extraídos:', pacientes.length, pacientes);
+      if(!response.ok) throw new Error('Erro '+response.status);
 
-    if(!pacientes.length){ toast('Nenhum paciente identificado na imagem','error'); return; }
+      const data = await response.json();
+      const a = data.analysis || data.data || data;
 
-    state.batchPreview = pacientes.map(p=>({
-      nome: p.nome_paciente || p.nome || p.paciente || '',
-      atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
-      convenio: p.convenio || p.plano || p.plano_saude || p.nome_convenio || '',
-      data: p.data_atendimento || p.data_internacao || p.data || today()
-    })).filter(p=>p.nome||p.atendimento);
+      // Suporta tanto lista quanto registro único
+      // Formato do Audit AI: { success, data: { etiquetas: [...] } }
+      let pacientes = [];
+      const dataNode = a.data || a; // suporta resposta com ou sem nó 'data'
+
+      if(dataNode.etiquetas && Array.isArray(dataNode.etiquetas) && dataNode.etiquetas.length > 0){
+        pacientes = dataNode.etiquetas; // formato principal do Audit AI
+      } else if(dataNode.pacientes && Array.isArray(dataNode.pacientes)){
+        pacientes = dataNode.pacientes;
+      } else if(Array.isArray(dataNode)){
+        pacientes = dataNode;
+      } else if(dataNode.nome_paciente || dataNode.nome){
+        pacientes = [dataNode]; // único paciente
+      } else {
+        // Tenta encontrar qualquer array na resposta
+        const arr = Object.values(dataNode).find(v => Array.isArray(v) && v.length > 0);
+        if(arr) pacientes = arr;
+      }
+
+      const mapped = pacientes.map(p=>({
+        nome: p.nome_paciente || p.nome || p.paciente || '',
+        atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
+        convenio: p.convenio || p.plano || p.plano_saude || p.nome_convenio || '',
+        data: p.data_atendimento || p.data_internacao || p.data || today()
+      })).filter(p=>p.nome||p.atendimento);
+
+      allPacientes.push(...mapped);
+      console.log(`[MedReconcile] Foto ${fi+1}/${files.length}: ${mapped.length} pacientes`);
+    } // fim do loop de arquivos
 
     // Remove mensagem de progresso
     const scanToast = document.getElementById('scan-toast');
     if(scanToast){ clearInterval(scanToast._interval); scanToast.remove(); }
-    
+
+    if(!allPacientes.length){ toast('Nenhum paciente identificado na(s) imagem(ns)','error'); return; }
+
+    state.batchPreview = allPacientes;
     render();
-    toast(pacientes.length > 1 
-      ? `✓ ${pacientes.length} pacientes encontrados — revise e confirme`
+    toast(allPacientes.length > 1
+      ? `✓ ${allPacientes.length} pacientes encontrados — revise e confirme`
       : '✓ Etiqueta lida! Revise e confirme','success');
-    
+
   } catch(e) {
     const scanToastErr = document.getElementById('scan-toast');
     if(scanToastErr){ clearInterval(scanToastErr._interval); scanToastErr.remove(); }
@@ -1439,6 +1454,17 @@ function renderConfig(){
       </button>
       <div id="ia-status" style="display:none;margin-top:12px;padding:14px 16px;border-radius:14px;"></div>
     </div>
+    <div class="lbl" style="margin-bottom:10px;">Backup de Dados</div>
+    <div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
+      <div style="font-size:13px;color:var(--text2);font-weight:700;margin-bottom:4px;">Backup para Google Drive</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Exporta todos os pacientes em Excel direto para o seu Google Drive</div>
+      <button onclick="backupToDrive()" id="drive-backup-btn" style="width:100%;padding:14px;border:none;border-radius:14px;font-weight:800;font-size:14px;cursor:pointer;font-family:inherit;
+        background:linear-gradient(135deg,#4285F4,#0F9D58);color:#fff;display:flex;align-items:center;justify-content:center;gap:10px;">
+        <svg width="18" height="18" viewBox="0 0 87.3 78" fill="none"><path d="M6.6 66.85l3.85 6.65c.8 1.4 1.95 2.5 3.3 3.3l13.75-23.8h-27.5c0 1.55.4 3.1 1.2 4.5z" fill="#0066da"/><path d="M43.65 25l-13.75-23.8c-1.35.8-2.5 1.9-3.3 3.3l-25.4 44a9.06 9.06 0 0 0-1.2 4.5h27.5z" fill="#00ac47"/><path d="M73.55 76.8c1.35-.8 2.5-1.9 3.3-3.3l1.6-2.75 7.65-13.25c.8-1.4 1.2-2.95 1.2-4.5h-27.502l5.852 11.5z" fill="#ea4335"/><path d="M43.65 25l13.75-23.8c-1.35-.8-2.9-1.2-4.5-1.2h-18.5c-1.6 0-3.15.45-4.5 1.2z" fill="#00832d"/><path d="M59.8 53h-32.3l-13.75 23.8c1.35.8 2.9 1.2 4.5 1.2h50.8c1.6 0 3.15-.45 4.5-1.2z" fill="#2684fc"/><path d="M73.4 26.5l-12.7-22c-.8-1.4-1.95-2.5-3.3-3.3l-13.75 23.8 16.15 28h27.45c0-1.55-.4-3.1-1.2-4.5z" fill="#ffba00"/></svg>
+        <span id="drive-backup-text">Salvar no Google Drive</span>
+      </button>
+    </div>
+    <div class="lbl" style="margin-bottom:10px;">Zona de Risco</div>
     ${state.showResetConfirm?`
     <div class="glass anim-up" style="padding:20px;margin-bottom:12px;border-left:3px solid var(--red);background:rgba(217,64,64,0.04);">
       <div style="font-size:14px;font-weight:900;color:var(--red);margin-bottom:8px;">⚠️ Zerar todos os dados?</div>
@@ -1644,6 +1670,99 @@ async function downloadInadimplencia(){
   XLSX.writeFile(wb, `Cobranca_${hospNome}_${today()}.xlsx`);
   toast(`Relatório exportado: ${inad.length} pacientes`,'success');
 }
+async function ensureDriveAccess(){
+  if(window.getDriveToken && window.getDriveToken()) return true;
+  try{
+    toast('\u23f3 Solicitando permiss\u00e3o do Google Drive...','info');
+    const result = await window.signInWithPopup(window.fbAuth, window.fbProvider);
+    const credential = window.GoogleAuthProvider.credentialFromResult(result);
+    if(credential && credential.accessToken){
+      window.setDriveToken(credential.accessToken);
+      toast('\u2713 Conectado ao Google Drive','success');
+      return true;
+    }
+  }catch(e){
+    console.error('Drive auth error:', e);
+    toast('N\u00e3o foi poss\u00edvel conectar ao Drive','error');
+  }
+  return false;
+}
+
+async function backupToDrive(){
+  const btn = document.getElementById('drive-backup-btn');
+  const txt = document.getElementById('drive-backup-text');
+
+  const ok = await ensureDriveAccess();
+  if(!ok) return;
+
+  const token = window.getDriveToken();
+  if(!token){ toast('Token inv\u00e1lido','error'); return; }
+
+  if(!state.patients.length){ toast('Nenhum paciente para exportar','error'); return; }
+
+  try{
+    if(btn) btn.disabled = true;
+    if(txt) txt.textContent = '\u23f3 Preparando backup...';
+    toast('\u23f3 Preparando backup...','info');
+
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+
+    const data = state.patients.map(a=>{
+      const h = state.hospitals.find(x=>x.id===a.hospId);
+      return {
+        'Profissional': state.profile.name||'N/A',
+        'CRM': state.profile.crm||'N/A',
+        'Unidade': h?h.name:'N/A',
+        'Paciente': a.nome,
+        'Atendimento': a.atendimento,
+        'Conv\u00eanio': a.convenio||'',
+        'Data': fmtDt(a.data),
+        'Valor': a.valor||0,
+        'Status': a.status||'PENDENTE'
+      };
+    });
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Backup');
+    const buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+
+    const name = `Backup_MedReconcile_${today()}.xlsx`;
+    const boundary = 'MedReconcileBoundary';
+    const metadata = {name, mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+
+    const body = new Blob([
+      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
+      blob,
+      `\r\n--${boundary}--`
+    ], {type:`multipart/related; boundary=${boundary}`});
+
+    if(txt) txt.textContent = '\u23f3 Enviando para o Drive...';
+
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method:'POST',
+      headers:{'Authorization':`Bearer ${token}`},
+      body
+    });
+
+    if(!res.ok){
+      if(res.status===401){
+        window.setDriveToken(null);
+      }
+      throw new Error('Erro '+res.status);
+    }
+
+    toast('\u2713 Backup salvo no Google Drive!','success');
+  }catch(e){
+    console.error(e);
+    toast('Erro ao enviar para o Drive. Tente novamente.','error');
+  }finally{
+    if(btn) btn.disabled = false;
+    if(txt) txt.textContent = 'Salvar no Google Drive';
+  }
+}
+
 function resetApp(){
   state.hospitals = [];
   state.patients = [];
