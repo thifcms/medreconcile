@@ -1103,9 +1103,11 @@ function setBatchDate(val){
 function confirmarLote(){
   if(!state.batchPreview)return;
   const total = state.batchPreview.length;
-  state.batchPreview.forEach(p=>state.patients.push({id:uid(),hospId:state.activeHosp,...p,valor:0,status:'PENDENTE'}));
+  const dataLote = state.batchDate || today();
+  state.batchPreview.forEach(p=>state.patients.push({id:uid(),hospId:state.activeHosp,...p,data:dataLote,valor:0,status:'PENDENTE'}));
   saveState();
   state.batchPreview=null;
+  state.batchDate=null;
   render();
   toast(`✓ ${total} pacientes salvos!`,'success');
 }
