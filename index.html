@@ -350,7 +350,7 @@ select.input{cursor:pointer;appearance:none;}
   <div id="content" style="padding:16px 20px 110px;position:relative;z-index:1;"></div>
 
   <!-- PATIENT MODAL -->
-  <div id="patient-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.45);display:flex;align-items:flex-end;justify-content:center;" onclick="closeModal(event)">
+  <div id="patient-modal" style="display:none;position:fixed;inset:0;z-index:200;background:rgba(0,0,0,0.45);align-items:flex-end;justify-content:center;" onclick="closeModal(event)">
     <div id="modal-content" style="background:linear-gradient(145deg,#f0f2f0,#e8ecee);border-radius:28px 28px 0 0;width:100%;max-width:480px;padding:24px;max-height:85vh;overflow-y:auto;box-shadow:0 -8px 40px rgba(0,0,0,0.20);">
       <div style="width:36px;height:4px;background:rgba(0,0,0,0.12);border-radius:2px;margin:0 auto 20px;"></div>
       <div id="modal-body"></div>
@@ -710,14 +710,22 @@ function renderAtendimentos(){
     <div class="glass anim-up" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--green);">
       <div style="font-size:14px;font-weight:900;color:var(--green2);margin-bottom:4px;">✓ Revisar antes de salvar</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">${state.batchPreview.length} etiquetas lidas — confira os dados</div>
+
+      <div style="margin-bottom:14px;">
+        <label style="display:block;font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Data do Atendimento (aplicada a todos)</label>
+        <input type="date" class="input" id="batch-date" value="${state.batchDate || today()}"
+          onchange="setBatchDate(this.value)"
+          style="font-size:14px;">
+      </div>
+
       ${state.batchPreview.map((p,i)=>`
         <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.70);">
           <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'} · ${fmtDt(p.data)}</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'}</div>
         </div>`).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;">
         <button class="btn-p" style="flex:1;" onclick="confirmarLote()">✓ Salvar todos</button>
-        <button class="btn-g" onclick="state.batchPreview=null;render();">Cancelar</button>
+        <button class="btn-g" onclick="state.batchPreview=null;state.batchDate=null;render();">Cancelar</button>
       </div>
     </div>`:''}
 
@@ -1061,6 +1069,7 @@ Retorne TODOS os pacientes em um array, mesmo que sejam 10 ou 20.`,
     if(!allPacientes.length){ toast('Nenhum paciente identificado na(s) imagem(ns)','error'); return; }
 
     state.batchPreview = allPacientes;
+    state.batchDate = today();
     render();
     toast(allPacientes.length > 1
       ? `✓ ${allPacientes.length} pacientes encontrados — revise e confirme`
@@ -1083,6 +1092,14 @@ function fakeScanning(){
     render();toast('2 etiquetas lidas — revise antes de salvar','success');
   },1800);
 }
+function setBatchDate(val){
+  state.batchDate = val;
+  if(state.batchPreview){
+    state.batchPreview = state.batchPreview.map(p=>({...p, data: val}));
+  }
+  render();
+}
+
 function confirmarLote(){
   if(!state.batchPreview)return;
   const total = state.batchPreview.length;
