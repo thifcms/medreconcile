@@ -464,7 +464,13 @@ const state = {
 
 // ── HELPERS ────────────────────────────────────────────────────────────────────
 const fmtBRL = v => v == null ? '—' : Number(v).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
-const fmtDt  = d => d ? new Date(d).toLocaleDateString('pt-BR') : '—';
+const fmtDt  = d => {
+  if(!d) return '—';
+  // Evita bug de fuso horario: parseia YYYY-MM-DD manualmente
+  const m = String(d).match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[3]}/${m[2]}/${m[1]}`;
+  return new Date(d).toLocaleDateString('pt-BR');
+};
 const today  = () => new Date().toISOString().split('T')[0];
 const uid    = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
 function diasAberto(data){ if(!data) return 0; return Math.floor((new Date()-new Date(data))/(1000*60*60*24)); }
@@ -1051,12 +1057,16 @@ Retorne TODOS os pacientes em um array, mesmo que sejam 10 ou 20.`,
         if(arr) pacientes = arr;
       }
 
-      const mapped = pacientes.map(p=>({
-        nome: p.nome_paciente || p.nome || p.paciente || '',
-        atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
-        convenio: p.convenio || p.plano || p.plano_saude || p.nome_convenio || '',
-        data: p.data_atendimento || p.data_internacao || p.data || today()
-      })).filter(p=>p.nome||p.atendimento);
+      const mapped = pacientes.map(p=>{
+        const conv = p.convenio || p.plano || p.plano_saude || p.nome_convenio || p.operadora || p.seguradora || p.plano_de_saude || '';
+        if(!conv) console.warn('[MedReconcile] Convenio vazio para:', p);
+        return {
+          nome: p.nome_paciente || p.nome || p.paciente || '',
+          atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
+          convenio: conv,
+          data: p.data_atendimento || p.data_internacao || p.data || today()
+        };
+      }).filter(p=>p.nome||p.atendimento);
 
       allPacientes.push(...mapped);
       console.log(`[MedReconcile] Foto ${fi+1}/${files.length}: ${mapped.length} pacientes`);
