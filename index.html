@@ -834,7 +834,7 @@ function renderAtendimentos(){
                 <div style="font-size:13px;font-weight:800;color:var(--text);margin-top:3px;">${a.convenio||'—'}</div>
               </div>
               <div style="background:rgba(255,255,255,0.65);border-radius:12px;padding:10px 12px;">
-                <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Data</div>
+                <div style="font-size:10px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Data do Atendimento</div>
                 <div style="font-size:13px;font-weight:800;color:var(--text);margin-top:3px;">${fmtDt(a.data)}</div>
               </div>
             </div>
@@ -1863,7 +1863,7 @@ function openPatientModal(id){
       ${[
         ['Nº Atendimento', p.atendimento||'—'],
         ['Convênio', p.convenio||'—'],
-        ['Data Atend.', fmtDt(p.data)],
+        ['Data do Atendimento', fmtDt(p.data)],
         ['Status', p.status==='PAGO'?'Pago':'Pendente'],
       ].map(([l,v])=>`
         <div style="background:rgba(255,255,255,0.70);border-radius:14px;padding:12px 14px;">
