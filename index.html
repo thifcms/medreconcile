@@ -1836,17 +1836,12 @@ function renderConfig(){
       <input class="input" id="prof-email" placeholder="E-mail" value="${state.profile.email||''}" style="margin-bottom:16px;">
       <button class="btn-p" style="width:100%;" onclick="saveProfile()">💾 Salvar Perfil</button>
     </div>
-    <div class="lbl" style="margin-bottom:10px;">Nuvem e Exportação</div>
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:20px;">
+    <div class="lbl" style="margin-bottom:10px;">Exportação</div>
+    <div style="margin-bottom:20px;">
       <div class="glass" style="padding:20px;cursor:pointer;" onclick="downloadCSV()">
         <div style="font-size:28px;margin-bottom:8px;">📗</div>
         <div style="font-weight:900;font-size:14px;color:var(--text);">Excel / CSV</div>
         <div style="font-size:11px;color:var(--text3);margin-top:4px;">Download direto</div>
-      </div>
-      <div style="padding:20px;border-radius:22px;cursor:pointer;background:linear-gradient(135deg,#272d32,var(--lead3));box-shadow:var(--shadow2);" onclick="toast('Google Drive disponível na versão de produção com Firebase','info')">
-        <div style="font-size:28px;margin-bottom:8px;">☁️</div>
-        <div style="font-weight:900;font-size:14px;color:#fff;">Google Drive</div>
-        <div style="font-size:11px;color:rgba(255,255,255,.45);margin-top:4px;">Disponível em produção</div>
       </div>
     </div>
     <div class="lbl" style="margin-bottom:10px;">Integração Audit AI</div>
@@ -1914,7 +1909,8 @@ function renderConfig(){
       🗑 Zerar todos os dados do app
     </button>
     `}
-    <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>`;
+    <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-16-v3</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
@@ -2169,22 +2165,22 @@ async function uploadBackupToDrive(token){
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, 'Backup');
   const buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
-  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+  const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+  const blob = new Blob([buf], {type:mimeType});
 
   const name = `Backup_MedReconcile_${today()}.xlsx`;
-  const boundary = 'MedReconcileBoundary';
-  const metadata = {name, mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+  const metadata = {name, mimeType};
 
-  const body = new Blob([
-    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
-    blob,
-    `\r\n--${boundary}--`
-  ], {type:`multipart/related; boundary=${boundary}`});
+  // FormData nativo: o navegador monta o multipart/boundary automaticamente,
+  // mais robusto do que montar o Blob multipart manualmente.
+  const form = new FormData();
+  form.append('metadata', new Blob([JSON.stringify(metadata)], {type:'application/json'}));
+  form.append('file', blob);
 
   const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
     method:'POST',
     headers:{'Authorization':`Bearer ${token}`},
-    body
+    body: form
   });
   return res;
 }
