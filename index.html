@@ -2486,6 +2486,8 @@ function showPinOrApp(){
   } else {
     document.getElementById('app').style.display='block';
     state.activeTab='inicio';
+    navStack = ['tab:inicio'];
+    try{ history.replaceState({navAnchor:true,base:true}, '', location.href); }catch(_){}
     showTab('inicio');
   }
 }
@@ -2583,6 +2585,8 @@ function pinTap(k){
         document.getElementById('pin-screen').style.display='none';
         document.getElementById('app').style.display='block';
         state.activeTab='inicio';
+        navStack = ['tab:inicio'];
+        try{ history.replaceState({navAnchor:true,base:true}, '', location.href); }catch(_){}
         showTab('inicio');
         // Update topbar with user name
         if(window.currentUser && state.profile.name){
