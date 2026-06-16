@@ -499,14 +499,25 @@ function openMesPicker(target){
   state.mesPickerTempMes = mesIni;
   state.mesPickerTempAno = anoIni;
   state.showMesPicker = true;
+  pushNavLayer('modal:mesPicker');
   render();
 }
-function closeMesPicker(){ state.showMesPicker=false; render(); }
+function popNavLayer(){
+  // Fechamento manual (via botão, não via gesto voltar): sincroniza a pilha e o histórico
+  if(navStack.length>1){
+    navStack.pop();
+    suppressPushOnPop = true;
+    try{ history.back(); }catch(_){}
+    setTimeout(()=>{ suppressPushOnPop=false; }, 50);
+  }
+}
+function closeMesPicker(){ state.showMesPicker=false; popNavLayer(); render(); }
 function confirmMesPicker(){
   const valor = state.mesPickerTempMes===null ? 'TODOS' : `${String(state.mesPickerTempMes+1).padStart(2,'0')}/${state.mesPickerTempAno}`;
   if(state.mesPickerTarget==='pagos') state.pagosFiltro = valor;
   else state.mesFiltro = valor;
   state.showMesPicker = false;
+  popNavLayer();
   render();
 }
 function mesPickerSetTodos(){ state.mesPickerTempMes=null; render(); }
@@ -563,7 +574,65 @@ function toast(msg, type='info'){
 const TITLES = {inicio:'MedReconcile',unidades:'Unidades Médicas',atendimentos:'Pacientes',auditagem:'Conciliação',config:'Perfil & Ajustes'};
 const TAB_ORDER = ['inicio','unidades','atendimentos','auditagem','config'];
 
+// ── HISTÓRICO DO NAVEGADOR (botão voltar do Android) ────────────────────────
+// Pilha de "camadas" abertas: modais/telas extras ficam no topo, abas ficam embaixo.
+// Ao pressionar voltar: fecha a camada do topo primeiro; só sai do app quando a pilha esvazia
+// e já está na primeira aba visitada.
+let navStack = ['tab:'+state.activeTab];
+let suppressPushOnPop = false;
+
+function isAnyModalOpen(){
+  return !!(state.showMesPicker || state.showPagosView || state.showRetornosView ||
+            state.showForm || state.batchPreview || state.showOrfaosConfirm ||
+            state.showResetConfirm || (document.getElementById('patient-modal') && document.getElementById('patient-modal').style.display==='flex'));
+}
+function pushNavLayer(label){
+  if(suppressPushOnPop) return;
+  navStack.push(label);
+  try{ history.pushState({navLayer:label, depth:navStack.length}, '', location.href); }catch(_){}
+}
+function closeTopModalLayer(){
+  // Fecha por prioridade a camada de modal mais "recente" visível
+  if(state.showMesPicker){ state.showMesPicker=false; render(); return true; }
+  if(state.showOrfaosConfirm){ state.showOrfaosConfirm=false; render(); return true; }
+  if(state.showResetConfirm){ state.showResetConfirm=false; render(); return true; }
+  if(state.batchPreview){ state.batchPreview=null; state.batchDate=null; render(); return true; }
+  if(state.showForm){ state.showForm=false; state.editId=null; render(); return true; }
+  if(state.showRetornosView){ state.showRetornosView=false; render(); return true; }
+  if(state.showPagosView){ state.showPagosView=false; render(); return true; }
+  const pm = document.getElementById('patient-modal');
+  if(pm && pm.style.display==='flex'){ pm.style.display='none'; return true; }
+  return false;
+}
+window.addEventListener('popstate', ()=>{
+  suppressPushOnPop = true;
+  // 1) Tenta fechar a camada de modal mais no topo
+  if(closeTopModalLayer()){
+    if(navStack.length>1) navStack.pop();
+    suppressPushOnPop = false;
+    return;
+  }
+  // 2) Sem modais abertos: volta para a aba anterior na pilha, se houver
+  if(navStack.length>1){
+    navStack.pop();
+    const top = navStack[navStack.length-1];
+    if(top && top.startsWith('tab:')){
+      const tab = top.slice(4);
+      state.activeTab = tab;
+      document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+      const nb = document.getElementById('nav-'+tab);
+      if(nb) nb.classList.add('active');
+      const activeH = state.hospitals.find(h=>h.id===state.activeHosp);
+      document.getElementById('topbar-title').textContent = (tab==='atendimentos'&&activeH) ? activeH.name : TITLES[tab];
+      render();
+    }
+  }
+  // 3) Se a pilha esvaziou (navStack.length<=1), deixa o navegador seguir o comportamento padrão (sair do app)
+  suppressPushOnPop = false;
+});
+
 function showTab(tab, direction){
+  if(tab !== state.activeTab) pushNavLayer('tab:'+tab);
   state.activeTab = tab;
   document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
   const nb = document.getElementById('nav-'+tab);
@@ -806,7 +875,7 @@ function renderAtendimentos(){
         </div>`).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;">
         <button class="btn-p" style="flex:1;" onclick="confirmarLote()">✓ Salvar todos</button>
-        <button class="btn-g" onclick="state.batchPreview=null;state.batchDate=null;render();">Cancelar</button>
+        <button class="btn-g" onclick="state.batchPreview=null;state.batchDate=null;popNavLayer();render();">Cancelar</button>
       </div>
     </div>`:''}
 
@@ -821,13 +890,13 @@ function renderAtendimentos(){
       </select>
       <input class="input" id="f-data" type="date" value="${state.editId?(state.patients.find(p=>p.id===state.editId)?.data||today()):today()}" style="margin-bottom:16px;">
       ${state.editId && state.patients.find(p=>p.id===state.editId)?.status==='RETORNO' ? `
-      <button onclick="unmarkReturn('${state.editId}');state.showForm=false;state.editId=null;render();" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(91,141,239,0.25);background:rgba(91,141,239,0.10);color:#3a6cd4;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Remover de Retornos (voltar para pendentes)</button>
+      <button onclick="unmarkReturn('${state.editId}');state.showForm=false;state.editId=null;popNavLayer();render();" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(91,141,239,0.25);background:rgba(91,141,239,0.10);color:#3a6cd4;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Remover de Retornos (voltar para pendentes)</button>
       ` : state.editId ? `
-      <button onclick="markReturn('${state.editId}');state.showForm=false;state.editId=null;render();" style="width:100%;padding:11px;border-radius:12px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Marcar como Retorno</button>
+      <button onclick="markReturn('${state.editId}');state.showForm=false;state.editId=null;popNavLayer();render();" style="width:100%;padding:11px;border-radius:12px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Marcar como Retorno</button>
       ` : ''}
       <div style="display:flex;gap:10px;">
         <button class="btn-p" style="flex:1;" onclick="savePatient()">${state.editId?'Salvar':'Confirmar'}</button>
-        <button class="btn-g" onclick="state.showForm=false;state.editId=null;render();">Cancelar</button>
+        <button class="btn-g" onclick="state.showForm=false;state.editId=null;popNavLayer();render();">Cancelar</button>
       </div>
     </div>`:''}
 
@@ -850,7 +919,7 @@ function renderAtendimentos(){
         font-family:inherit;cursor:pointer;">
         📅 ${state.mesFiltro==='TODOS'?'Todos os períodos':state.mesFiltro}
       </button>
-      <button onclick="state.showPagosView=true;render();" style="padding:11px 14px;font-size:13px;border-radius:14px;white-space:nowrap;
+      <button onclick="state.showPagosView=true;pushNavLayer('modal:pagos');render();" style="padding:11px 14px;font-size:13px;border-radius:14px;white-space:nowrap;
         background:linear-gradient(135deg,#35d46e,#22a852,#1a8f45);color:#fff;border:none;box-shadow:0 3px 10px rgba(46,200,102,0.30);font-weight:800;
         font-family:inherit;cursor:pointer;">✓ Pagos</button>
       <button onclick="state.showRelatorio=!state.showRelatorio;render();" style="padding:11px 14px;font-size:13px;border-radius:14px;white-space:nowrap;
@@ -859,7 +928,7 @@ function renderAtendimentos(){
     ${(()=>{
       const retornos = all.filter(a=>a.status==='RETORNO');
       return retornos.length>0 ? `
-      <button onclick="state.showRetornosView=true;render();" style="width:100%;padding:10px 14px;font-size:12px;border-radius:12px;margin-bottom:14px;text-align:left;display:flex;align-items:center;gap:8px;
+      <button onclick="state.showRetornosView=true;pushNavLayer('modal:retornos');render();" style="width:100%;padding:10px 14px;font-size:12px;border-radius:12px;margin-bottom:14px;text-align:left;display:flex;align-items:center;gap:8px;
         background:rgba(91,141,239,0.08);color:#3a6cd4;border:1px solid rgba(91,141,239,0.18);font-weight:800;font-family:inherit;cursor:pointer;">
         ↩ ${retornos.length} paciente${retornos.length>1?'s':''} em Retorno
       </button>` : '';
@@ -998,7 +1067,7 @@ function renderRetornosView(){
   <div style="position:fixed;inset:0;background:var(--bg);z-index:150;overflow-y:auto;padding:20px;padding-bottom:40px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
       <div style="font-size:17px;font-weight:900;color:var(--text);">↩ Pacientes em Retorno</div>
-      <button onclick="state.showRetornosView=false;render();" style="width:36px;height:36px;border-radius:12px;border:none;background:rgba(255,255,255,0.60);color:var(--text3);font-size:16px;cursor:pointer;font-family:inherit;font-weight:900;">✕</button>
+      <button onclick="state.showRetornosView=false;popNavLayer();render();" style="width:36px;height:36px;border-radius:12px;border:none;background:rgba(255,255,255,0.60);color:var(--text3);font-size:16px;cursor:pointer;font-family:inherit;font-weight:900;">✕</button>
     </div>
 
     <div class="glass" style="padding:14px 16px;margin-bottom:18px;background:rgba(91,141,239,0.07);">
@@ -1035,7 +1104,7 @@ function renderPagosView(){
   <div style="position:fixed;inset:0;background:var(--bg);z-index:150;overflow-y:auto;padding:20px;padding-bottom:40px;">
     <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:18px;">
       <div style="font-size:17px;font-weight:900;color:var(--text);">✓ Pacientes Pagos</div>
-      <button onclick="state.showPagosView=false;render();" style="width:36px;height:36px;border-radius:12px;border:none;background:rgba(255,255,255,0.60);color:var(--text3);font-size:16px;cursor:pointer;font-family:inherit;font-weight:900;">✕</button>
+      <button onclick="state.showPagosView=false;popNavLayer();render();" style="width:36px;height:36px;border-radius:12px;border:none;background:rgba(255,255,255,0.60);color:var(--text3);font-size:16px;cursor:pointer;font-family:inherit;font-weight:900;">✕</button>
     </div>
 
     <button onclick="openMesPicker('pagos')" style="width:100%;padding:11px 14px;font-size:13px;border-radius:14px;text-align:left;display:flex;align-items:center;gap:8px;margin-bottom:16px;
@@ -1068,8 +1137,13 @@ function renderPagosView(){
   </div>`;
 }
 
-function toggleForm(){state.showForm=!state.showForm;state.editId=null;render();}
-function editPatient(id){state.editId=id;state.showForm=true;state.showRelatorio=false;render();}
+function toggleForm(){
+  const opening = !state.showForm;
+  state.showForm=!state.showForm;state.editId=null;
+  if(opening) pushNavLayer('modal:form'); else popNavLayer();
+  render();
+}
+function editPatient(id){state.editId=id;state.showForm=true;state.showRelatorio=false;pushNavLayer('modal:form');render();}
 function askDelete(id){confirmDeleteId=id;render();}
 function removePatient(id){state.patients=state.patients.filter(p=>p.id!==id);confirmDeleteId=null;saveState();render();toast('Paciente removido','info');}
 function markPaid(id){
@@ -1100,7 +1174,7 @@ function savePatient(){
     state.patients.push({id:uid(),hospId:state.activeHosp,nome,atendimento:atd,convenio:conv,data,status:'PENDENTE'});saveState();
     toast('Adicionado!','success');
   }
-  state.showForm=false;state.editId=null;render();
+  state.showForm=false;state.editId=null;popNavLayer();render();
 }
 async function handleExcelImport(input){
   const file = input.files[0];
@@ -1133,6 +1207,7 @@ async function handleExcelImport(input){
     if(!imported.length){ toast('Nenhum paciente encontrado na planilha','error'); return; }
 
     state.batchPreview = imported;
+    pushNavLayer('modal:batchPreview');
     render();
     toast(`${imported.length} pacientes encontrados — revise e confirme`,'success');
   } catch(e) {
@@ -1360,6 +1435,7 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
 
     state.batchPreview = allPacientes;
     state.batchDate = today();
+    pushNavLayer('modal:batchPreview');
     render();
     toast(allPacientes.length > 1
       ? `✓ ${allPacientes.length} pacientes encontrados — revise e confirme`
@@ -1401,6 +1477,7 @@ function confirmarLote(){
   saveState();
   state.batchPreview=null;
   state.batchDate=null;
+  popNavLayer();
   render();
   toast(`✓ ${total} pacientes salvos!`,'success');
 }
@@ -1790,11 +1867,11 @@ function renderConfig(){
           <div style="font-size:13px;color:var(--red);font-weight:800;margin-bottom:12px;">Confirma remover ${orfaos.length} registro${orfaos.length>1?'s':''} órfão${orfaos.length>1?'s':''}? Eles não pertencem a nenhuma unidade ativa e esta ação não pode ser desfeita.</div>
           <div style="display:flex;gap:10px;">
             <button onclick="removeOrfaos()" style="flex:1;padding:13px;border-radius:14px;border:none;background:var(--red);color:#fff;font-weight:900;font-size:13px;cursor:pointer;font-family:inherit;">Sim, remover</button>
-            <button onclick="state.showOrfaosConfirm=false;render();" class="btn-g" style="flex:1;padding:13px;">Cancelar</button>
+            <button onclick="state.showOrfaosConfirm=false;popNavLayer();render();" class="btn-g" style="flex:1;padding:13px;">Cancelar</button>
           </div>
         ` : `
           <div style="font-size:13px;color:var(--orange);font-weight:800;margin-bottom:12px;">⚠ ${orfaos.length} registro${orfaos.length>1?'s':''} órfão${orfaos.length>1?'s':''} encontrado${orfaos.length>1?'s':''}</div>
-          <button onclick="state.showOrfaosConfirm=true;render();" style="width:100%;padding:12px;border-radius:14px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;
+          <button onclick="state.showOrfaosConfirm=true;pushNavLayer('modal:orfaosConfirm');render();" style="width:100%;padding:12px;border-radius:14px;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;
             background:rgba(217,64,64,0.07);color:var(--red);border:1px solid rgba(217,64,64,0.18);">Ver e remover registros órfãos</button>
         `;
       })()}
@@ -1810,13 +1887,13 @@ function renderConfig(){
         <button onclick="resetApp()" style="flex:1;padding:13px;border-radius:14px;border:none;background:var(--red);color:#fff;font-weight:900;font-size:14px;cursor:pointer;font-family:inherit;">
           Sim, zerar tudo
         </button>
-        <button onclick="state.showResetConfirm=false;render();" class="btn-g" style="flex:1;padding:13px;">
+        <button onclick="state.showResetConfirm=false;popNavLayer();render();" class="btn-g" style="flex:1;padding:13px;">
           Cancelar
         </button>
       </div>
     </div>
     `:`
-    <button onclick="state.showResetConfirm=true;render();" style="width:100%;padding:14px;border-radius:16px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;
+    <button onclick="state.showResetConfirm=true;pushNavLayer('modal:resetConfirm');render();" style="width:100%;padding:14px;border-radius:16px;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;
       background:rgba(217,64,64,0.07);color:var(--red);border:1px solid rgba(217,64,64,0.18);">
       🗑 Zerar todos os dados do app
     </button>
@@ -2104,6 +2181,7 @@ function removeOrfaos(){
   state.patients = state.patients.filter(p=>p.hospId && validHospIds.has(p.hospId));
   const removed = before - state.patients.length;
   state.showOrfaosConfirm = false;
+  popNavLayer();
   saveState();
   render();
   toast(`✓ ${removed} registro${removed>1?'s':''} órfão${removed>1?'s':''} removido${removed>1?'s':''}`,'success');
@@ -2114,6 +2192,7 @@ function resetApp(){
   state.profile = {name:'',crm:'',especialidade:'',email:'',appPassword:'123456'};
   state.activeHosp = null;
   state.showResetConfirm = false;
+  popNavLayer();
   state.concilPreview = null;
   state.batchPreview = null;
   state.mesFiltro = 'TODOS';
@@ -2199,6 +2278,7 @@ function openPatientModal(id){
   const modal = document.getElementById('patient-modal');
   const body = document.getElementById('modal-body');
   modal.style.display='flex';
+  pushNavLayer('modal:patientDetail');
   body.innerHTML = `
     <div style="font-size:18px;font-weight:900;color:var(--text);margin-bottom:4px;">${p.nome}</div>
     <div style="font-size:12px;color:${p.status==='PAGO'?'var(--green2)':'var(--orange)'};font-weight:800;margin-bottom:20px;">
@@ -2228,13 +2308,16 @@ function openPatientModal(id){
 
 function closeModal(e){
   if(e && e.target !== document.getElementById('patient-modal')) return;
-  document.getElementById('patient-modal').style.display='none';
+  const modal = document.getElementById('patient-modal');
+  if(modal.style.display==='flex') popNavLayer();
+  modal.style.display='none';
 }
 
 function editPatientInline(id){
   state.editId=id;
   state.showForm=true;
   state.showRelatorio=false;
+  pushNavLayer('modal:form');
   render();
   // Scroll to the form immediately
   setTimeout(()=>{
