@@ -502,13 +502,14 @@ function openMesPicker(target){
   pushNavLayer('modal:mesPicker');
   render();
 }
+let ignoreNextPopstate = false;
 function popNavLayer(){
-  // Fechamento manual (via botão, não via gesto voltar): sincroniza a pilha e o histórico
+  // Fechamento manual (via botão, não via gesto voltar): sincroniza a pilha e o histórico,
+  // mas ignora o popstate que isso vai disparar (já fechamos o modal manualmente).
   if(navStack.length>1){
     navStack.pop();
-    suppressPushOnPop = true;
-    try{ history.back(); }catch(_){}
-    setTimeout(()=>{ suppressPushOnPop=false; }, 50);
+    ignoreNextPopstate = true;
+    try{ history.back(); }catch(_){ ignoreNextPopstate=false; }
   }
 }
 function closeMesPicker(){ state.showMesPicker=false; popNavLayer(); render(); }
@@ -578,6 +579,9 @@ const TAB_ORDER = ['inicio','unidades','atendimentos','auditagem','config'];
 // Pilha de "camadas" abertas: modais/telas extras ficam no topo, abas ficam embaixo.
 // Ao pressionar voltar: fecha a camada do topo primeiro; só sai do app quando a pilha esvazia
 // e já está na primeira aba visitada.
+// Estratégia: sempre que ainda há algo na pilha lógica (navStack), garantimos que existe
+// uma entrada real no histórico do navegador para "absorver" o próximo voltar. Isso é
+// necessário porque PWAs abertos direto (sem navegação orgânica) começam com histórico raso.
 let navStack = ['tab:'+state.activeTab];
 let suppressPushOnPop = false;
 
@@ -586,10 +590,14 @@ function isAnyModalOpen(){
             state.showForm || state.batchPreview || state.showOrfaosConfirm ||
             state.showResetConfirm || (document.getElementById('patient-modal') && document.getElementById('patient-modal').style.display==='flex'));
 }
+function ensureHistoryAnchor(){
+  // Garante que sempre exista uma entrada no histórico real para interceptar o próximo "voltar",
+  // enquanto a pilha lógica (navStack) ainda tiver mais de 1 item.
+  try{ history.pushState({navAnchor:true, depth:navStack.length}, '', location.href); }catch(_){}
+}
 function pushNavLayer(label){
-  if(suppressPushOnPop) return;
   navStack.push(label);
-  try{ history.pushState({navLayer:label, depth:navStack.length}, '', location.href); }catch(_){}
+  ensureHistoryAnchor();
 }
 function closeTopModalLayer(){
   // Fecha por prioridade a camada de modal mais "recente" visível
@@ -605,11 +613,12 @@ function closeTopModalLayer(){
   return false;
 }
 window.addEventListener('popstate', ()=>{
-  suppressPushOnPop = true;
+  if(ignoreNextPopstate){ ignoreNextPopstate=false; return; }
   // 1) Tenta fechar a camada de modal mais no topo
   if(closeTopModalLayer()){
     if(navStack.length>1) navStack.pop();
-    suppressPushOnPop = false;
+    // Ainda há itens na pilha lógica? Garante âncora no histórico para o próximo voltar.
+    if(navStack.length>1) ensureHistoryAnchor();
     return;
   }
   // 2) Sem modais abertos: volta para a aba anterior na pilha, se houver
@@ -626,9 +635,11 @@ window.addEventListener('popstate', ()=>{
       document.getElementById('topbar-title').textContent = (tab==='atendimentos'&&activeH) ? activeH.name : TITLES[tab];
       render();
     }
+    // Ainda há mais de 1 aba na pilha? Garante âncora para o próximo voltar.
+    if(navStack.length>1) ensureHistoryAnchor();
   }
-  // 3) Se a pilha esvaziou (navStack.length<=1), deixa o navegador seguir o comportamento padrão (sair do app)
-  suppressPushOnPop = false;
+  // 3) Se a pilha esvaziou (navStack.length<=1), não recriamos âncora: deixa o navegador
+  // seguir o comportamento padrão (sair do app) na próxima vez que apertar voltar.
 });
 
 function showTab(tab, direction){
