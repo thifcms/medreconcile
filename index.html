@@ -5,7 +5,7 @@
 <link rel="manifest" href="manifest.json">
 <script type="module">
   import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-  import { getAuth, GoogleAuthProvider, signInWithPopup, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
+  import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithRedirect, getRedirectResult, onAuthStateChanged, signOut } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
   import { getFirestore, doc, setDoc, collection, onSnapshot, deleteDoc, getDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   const firebaseConfig = {
@@ -28,6 +28,9 @@
   window.getDriveToken = () => _driveToken;
   window.GoogleAuthProvider = GoogleAuthProvider;
   window.signInWithPopup = signInWithPopup;
+  window.signInWithRedirect = signInWithRedirect;
+  window.getRedirectResult = getRedirectResult;
+  window.isStandalonePWA = window.matchMedia('(display-mode: standalone)').matches || window.navigator.standalone === true;
 
   window.fbAuth = auth;
   window.fbDb = db;
@@ -2097,6 +2100,13 @@ async function ensureDriveAccess(){
   if(window.getDriveToken && window.getDriveToken()) return true;
   try{
     toast('\u23f3 Solicitando permiss\u00e3o do Google Drive...','info');
+    if(window.isStandalonePWA){
+      // Popups n\u00e3o funcionam de forma confi\u00e1vel em PWAs instalados (modo standalone) no Android.
+      // Usamos redirect: o app recarrega ap\u00f3s o login, e o resultado \u00e9 tratado no boot.
+      sessionStorage.setItem('med_drive_pending_action', 'backup');
+      await window.signInWithRedirect(window.fbAuth, window.fbProvider);
+      return false;
+    }
     const result = await window.signInWithPopup(window.fbAuth, window.fbProvider);
     const credential = window.GoogleAuthProvider.credentialFromResult(result);
     if(credential && credential.accessToken){
@@ -2109,6 +2119,25 @@ async function ensureDriveAccess(){
     toast('N\u00e3o foi poss\u00edvel conectar ao Drive','error');
   }
   return false;
+}
+
+async function checkDriveRedirectResult(){
+  try{
+    const pending = sessionStorage.getItem('med_drive_pending_action');
+    if(!pending) return;
+    const result = await window.getRedirectResult(window.fbAuth);
+    sessionStorage.removeItem('med_drive_pending_action');
+    if(result){
+      const credential = window.GoogleAuthProvider.credentialFromResult(result);
+      if(credential && credential.accessToken){
+        window.setDriveToken(credential.accessToken);
+        toast('\u2713 Conectado! Toque em "Salvar no Google Drive" novamente.','success');
+      }
+    }
+  }catch(e){
+    console.error('Drive redirect result error:', e);
+    sessionStorage.removeItem('med_drive_pending_action');
+  }
 }
 
 async function uploadBackupToDrive(token){
@@ -2629,6 +2658,7 @@ window.addEventListener('DOMContentLoaded',()=>{
             window.currentUser = user;
             state.profile.email = user.email;
             await loadUserData(user.uid);
+            checkDriveRedirectResult();
             showPinOrApp();
           } else {
             document.getElementById('login-screen').style.display='block';
@@ -2642,6 +2672,7 @@ window.addEventListener('DOMContentLoaded',()=>{
               if(user){
                 window.currentUser = user;
                 await loadUserData(user.uid);
+                checkDriveRedirectResult();
                 showPinOrApp();
               } else {
                 document.getElementById('login-screen').style.display='block';
