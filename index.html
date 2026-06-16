@@ -2111,75 +2111,90 @@ async function ensureDriveAccess(){
   return false;
 }
 
+async function uploadBackupToDrive(token){
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+
+  const data = state.patients.map(a=>{
+    const h = state.hospitals.find(x=>x.id===a.hospId);
+    return {
+      'Profissional': state.profile.name||'N/A',
+      'CRM': state.profile.crm||'N/A',
+      'Unidade': h?h.name:'N/A',
+      'Paciente': a.nome,
+      'Atendimento': a.atendimento,
+      'Convênio': a.convenio||'',
+      'Data': fmtDt(a.data),
+      'Valor': a.valor||0,
+      'Status': a.status||'PENDENTE'
+    };
+  });
+
+  const ws = XLSX.utils.json_to_sheet(data);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Backup');
+  const buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
+  const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+
+  const name = `Backup_MedReconcile_${today()}.xlsx`;
+  const boundary = 'MedReconcileBoundary';
+  const metadata = {name, mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
+
+  const body = new Blob([
+    `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
+    blob,
+    `\r\n--${boundary}--`
+  ], {type:`multipart/related; boundary=${boundary}`});
+
+  const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    method:'POST',
+    headers:{'Authorization':`Bearer ${token}`},
+    body
+  });
+  return res;
+}
+
 async function backupToDrive(){
   const btn = document.getElementById('drive-backup-btn');
   const txt = document.getElementById('drive-backup-text');
 
+  if(!state.patients.length){ toast('Nenhum paciente para exportar','error'); return; }
+
   const ok = await ensureDriveAccess();
   if(!ok) return;
 
-  const token = window.getDriveToken();
-  if(!token){ toast('Token inv\u00e1lido','error'); return; }
-
-  if(!state.patients.length){ toast('Nenhum paciente para exportar','error'); return; }
+  let token = window.getDriveToken();
+  if(!token){ toast('Não foi possível obter acesso ao Drive','error'); return; }
 
   try{
     if(btn) btn.disabled = true;
-    if(txt) txt.textContent = '\u23f3 Preparando backup...';
-    toast('\u23f3 Preparando backup...','info');
+    if(txt) txt.textContent = '⏳ Preparando backup...';
+    toast('⏳ Preparando backup...','info');
 
-    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+    if(txt) txt.textContent = '⏳ Enviando para o Drive...';
+    let res = await uploadBackupToDrive(token);
 
-    const data = state.patients.map(a=>{
-      const h = state.hospitals.find(x=>x.id===a.hospId);
-      return {
-        'Profissional': state.profile.name||'N/A',
-        'CRM': state.profile.crm||'N/A',
-        'Unidade': h?h.name:'N/A',
-        'Paciente': a.nome,
-        'Atendimento': a.atendimento,
-        'Conv\u00eanio': a.convenio||'',
-        'Data': fmtDt(a.data),
-        'Valor': a.valor||0,
-        'Status': a.status||'PENDENTE'
-      };
-    });
-
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, 'Backup');
-    const buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
-    const blob = new Blob([buf], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
-
-    const name = `Backup_MedReconcile_${today()}.xlsx`;
-    const boundary = 'MedReconcileBoundary';
-    const metadata = {name, mimeType:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'};
-
-    const body = new Blob([
-      `--${boundary}\r\nContent-Type: application/json\r\n\r\n${JSON.stringify(metadata)}\r\n--${boundary}\r\nContent-Type: application/vnd.openxmlformats-officedocument.spreadsheetml.sheet\r\n\r\n`,
-      blob,
-      `\r\n--${boundary}--`
-    ], {type:`multipart/related; boundary=${boundary}`});
-
-    if(txt) txt.textContent = '\u23f3 Enviando para o Drive...';
-
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method:'POST',
-      headers:{'Authorization':`Bearer ${token}`},
-      body
-    });
-
-    if(!res.ok){
-      if(res.status===401){
-        window.setDriveToken(null);
-      }
-      throw new Error('Erro '+res.status);
+    // Token pode ter expirado (sessão antiga salva no celular): limpa e tenta de novo com novo login
+    if(!res.ok && (res.status===401 || res.status===403)){
+      window.setDriveToken(null);
+      toast('Sessão do Drive expirada, reconectando...','info');
+      const reconnected = await ensureDriveAccess();
+      if(!reconnected) throw new Error('Não foi possível reconectar ao Drive');
+      token = window.getDriveToken();
+      if(!token) throw new Error('Token não disponível após reconexão');
+      res = await uploadBackupToDrive(token);
     }
 
-    toast('\u2713 Backup salvo no Google Drive!','success');
+    if(!res.ok){
+      throw new Error('O Google Drive recusou o envio (código '+res.status+'). Tente novamente em alguns instantes.');
+    }
+
+    toast('✓ Backup salvo no Google Drive!','success');
   }catch(e){
     console.error(e);
-    toast('Erro ao enviar para o Drive: '+(e.message||'desconhecido'),'error');
+    const msg = (e && e.message && e.message.toLowerCase().includes('fetch'))
+      ? 'Falha de conexão ao enviar para o Drive. Verifique sua internet e tente novamente.'
+      : ('Erro ao enviar para o Drive: '+(e.message||'desconhecido'));
+    toast(msg,'error');
   }finally{
     if(btn) btn.disabled = false;
     if(txt) txt.textContent = 'Salvar no Google Drive';
