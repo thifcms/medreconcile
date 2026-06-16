@@ -2179,7 +2179,7 @@ async function backupToDrive(){
     toast('\u2713 Backup salvo no Google Drive!','success');
   }catch(e){
     console.error(e);
-    toast('Erro ao enviar para o Drive. Tente novamente.','error');
+    toast('Erro ao enviar para o Drive: '+(e.message||'desconhecido'),'error');
   }finally{
     if(btn) btn.disabled = false;
     if(txt) txt.textContent = 'Salvar no Google Drive';
