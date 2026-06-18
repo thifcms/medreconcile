@@ -1182,6 +1182,21 @@ function savePatient(){
   const conv=document.getElementById('f-conv')?.value||'';
   const data=document.getElementById('f-data')?.value||today();
   if(state.editId){
+    const original = state.patients.find(p=>p.id===state.editId);
+    if(original && original.aiSourceHash){
+      const changed = String(original.nome||'')!==String(nome||'') ||
+                       String(original.atendimento||'')!==String(atd||'') ||
+                       String(original.convenio||'')!==String(conv||'');
+      if(changed){
+        // Aviso em segundo plano para a Audit AI: este exemplo foi corrigido manualmente,
+        // não deve ser promovido automaticamente no sistema de aprendizado.
+        fetch(`${AI_URL}/api/learned-examples/mark-corrected`, {
+          method:'POST',
+          headers:{'Content-Type':'application/json'},
+          body: JSON.stringify({image_hash: original.aiSourceHash})
+        }).catch(()=>{});
+      }
+    }
     state.patients=state.patients.map(p=>p.id===state.editId?{...p,nome,atendimento:atd,convenio:conv,data}:p);saveState();
     toast('Atualizado!','success');
   } else {
@@ -1406,6 +1421,7 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
 
       const data = await response.json();
       const a = data.analysis || data.data || data;
+      const imageHash = data.image_hash || a.image_hash || '';
 
       // Suporta tanto lista quanto registro único
       // Formato do Audit AI: { success, data: { etiquetas: [...] } }
@@ -1433,7 +1449,8 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
           nome: p.nome_paciente || p.nome || p.paciente || '',
           atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
           convenio: conv,
-          data: p.data_atendimento || p.data_internacao || p.data || today()
+          data: p.data_atendimento || p.data_internacao || p.data || today(),
+          aiSourceHash: imageHash
         };
       }).filter(p=>p.nome||p.atendimento);
 
@@ -1910,7 +1927,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-16-v3</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-17-v5</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
@@ -2103,13 +2120,6 @@ async function ensureDriveAccess(){
   if(window.getDriveToken && window.getDriveToken()) return true;
   try{
     toast('\u23f3 Solicitando permiss\u00e3o do Google Drive...','info');
-    if(window.isStandalonePWA){
-      // Popups n\u00e3o funcionam de forma confi\u00e1vel em PWAs instalados (modo standalone) no Android.
-      // Usamos redirect: o app recarrega ap\u00f3s o login, e o resultado \u00e9 tratado no boot.
-      sessionStorage.setItem('med_drive_pending_action', 'backup');
-      await window.signInWithRedirect(window.fbAuth, window.fbProvider);
-      return false;
-    }
     const result = await window.signInWithPopup(window.fbAuth, window.fbProvider);
     const credential = window.GoogleAuthProvider.credentialFromResult(result);
     if(credential && credential.accessToken){
@@ -2119,28 +2129,9 @@ async function ensureDriveAccess(){
     }
   }catch(e){
     console.error('Drive auth error:', e);
-    toast('N\u00e3o foi poss\u00edvel conectar ao Drive','error');
+    toast('N\u00e3o foi poss\u00edvel abrir o login do Google. Toque em "Encerrar Sess\u00e3o" e entre de novo \u2014 isso vai conectar o Drive automaticamente.','error');
   }
   return false;
-}
-
-async function checkDriveRedirectResult(){
-  try{
-    const pending = sessionStorage.getItem('med_drive_pending_action');
-    if(!pending) return;
-    const result = await window.getRedirectResult(window.fbAuth);
-    sessionStorage.removeItem('med_drive_pending_action');
-    if(result){
-      const credential = window.GoogleAuthProvider.credentialFromResult(result);
-      if(credential && credential.accessToken){
-        window.setDriveToken(credential.accessToken);
-        toast('\u2713 Conectado! Toque em "Salvar no Google Drive" novamente.','success');
-      }
-    }
-  }catch(e){
-    console.error('Drive redirect result error:', e);
-    sessionStorage.removeItem('med_drive_pending_action');
-  }
 }
 
 async function uploadBackupToDrive(token){
@@ -2490,6 +2481,14 @@ async function loginGoogle(){
     if(!window.fbSignIn){ toast('Firebase carregando...','info'); return; }
     const result = await window.fbSignIn();
     window.currentUser = result.user;
+    // O provider já solicita o escopo do Drive junto com o login principal —
+    // aproveitamos o mesmo token aqui, sem precisar de uma segunda autenticação.
+    try{
+      const credential = window.GoogleAuthProvider.credentialFromResult(result);
+      if(credential && credential.accessToken){
+        window.setDriveToken(credential.accessToken);
+      }
+    }catch(_){}
     await loadUserData(result.user.uid);
     document.getElementById('login-screen').style.display='none';
     showPinOrApp();
@@ -2661,7 +2660,6 @@ window.addEventListener('DOMContentLoaded',()=>{
             window.currentUser = user;
             state.profile.email = user.email;
             await loadUserData(user.uid);
-            checkDriveRedirectResult();
             showPinOrApp();
           } else {
             document.getElementById('login-screen').style.display='block';
@@ -2675,7 +2673,6 @@ window.addEventListener('DOMContentLoaded',()=>{
               if(user){
                 window.currentUser = user;
                 await loadUserData(user.uid);
-                checkDriveRedirectResult();
                 showPinOrApp();
               } else {
                 document.getElementById('login-screen').style.display='block';
