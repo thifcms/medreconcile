@@ -1927,7 +1927,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-17-v5</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-17-v6</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
@@ -1943,17 +1943,9 @@ function saveProfile(){
   render();
   toast('Perfil salvo!','success');
 }
-async function downloadCSV(){
-  // Carrega SheetJS dinamicamente
-  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
-  
+async function buildMedReconcileWorkbook(XLSX){
   const wb = XLSX.utils.book_new();
   const headers = ['Paciente','Nº Atendimento','Convênio','Data Atendimento','Status','Médico','CRM'];
-
-  if(state.hospitals.length === 0){
-    toast('Nenhum hospital cadastrado','error');
-    return;
-  }
 
   state.hospitals.forEach(hosp => {
     const pats = state.patients.filter(p => p.hospId === hosp.id);
@@ -1972,24 +1964,13 @@ async function downloadCSV(){
     }
 
     const ws = XLSX.utils.json_to_sheet(rows, {header: headers});
-
-    // Largura das colunas
     ws['!cols'] = [
-      {wch:30}, // Paciente
-      {wch:16}, // Atendimento
-      {wch:20}, // Convênio
-      {wch:16}, // Data
-      {wch:12}, // Status
-      {wch:25}, // Médico
-      {wch:14}, // CRM
+      {wch:30}, {wch:16}, {wch:20}, {wch:16}, {wch:12}, {wch:25}, {wch:14},
     ];
-
-    // Nome da aba (max 31 chars, sem caracteres especiais)
     const sheetName = hosp.name.substring(0,31).replace(/[\/:*?\[\]]/g,'');
     XLSX.utils.book_append_sheet(wb, ws, sheetName);
   });
 
-  // Aba resumo geral
   const resumo = state.patients.map(p => {
     const h = state.hospitals.find(h=>h.id===p.hospId);
     return {
@@ -2005,6 +1986,19 @@ async function downloadCSV(){
   wsResumo['!cols'] = [{wch:25},{wch:30},{wch:16},{wch:20},{wch:16},{wch:12}];
   XLSX.utils.book_append_sheet(wb, wsResumo, 'Resumo Geral');
 
+  return wb;
+}
+
+async function downloadCSV(){
+  // Carrega SheetJS dinamicamente
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+
+  if(state.hospitals.length === 0){
+    toast('Nenhum hospital cadastrado','error');
+    return;
+  }
+
+  const wb = await buildMedReconcileWorkbook(XLSX);
   XLSX.writeFile(wb, `MedReconcile_${today()}.xlsx`);
   toast('Excel exportado com sucesso!','success');
 }
@@ -2137,24 +2131,7 @@ async function ensureDriveAccess(){
 async function uploadBackupToDrive(token){
   const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
 
-  const data = state.patients.map(a=>{
-    const h = state.hospitals.find(x=>x.id===a.hospId);
-    return {
-      'Profissional': state.profile.name||'N/A',
-      'CRM': state.profile.crm||'N/A',
-      'Unidade': h?h.name:'N/A',
-      'Paciente': a.nome,
-      'Atendimento': a.atendimento,
-      'Convênio': a.convenio||'',
-      'Data': fmtDt(a.data),
-      'Valor': a.valor||0,
-      'Status': a.status||'PENDENTE'
-    };
-  });
-
-  const ws = XLSX.utils.json_to_sheet(data);
-  const wb = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(wb, ws, 'Backup');
+  const wb = await buildMedReconcileWorkbook(XLSX);
   const buf = XLSX.write(wb, {bookType:'xlsx', type:'array'});
   const mimeType = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
   const blob = new Blob([buf], {type:mimeType});
