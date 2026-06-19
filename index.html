@@ -1375,6 +1375,7 @@ async function handleCamera(input){
   toastEl._interval = msgInterval;
 
   const allPacientes = [];
+  let quotaExhaustedFlag = false;
 
   try {
     for(let fi=0; fi<files.length; fi++){
@@ -1441,6 +1442,7 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
       const data = await response.json();
       const a = data.analysis || data.data || data;
       const imageHash = data.image_hash || a.image_hash || '';
+      if(data.quotaExhausted === true) quotaExhaustedFlag = true;
 
       // Suporta tanto lista quanto registro único
       // Formato do Audit AI: { success, data: { etiquetas: [...] } }
@@ -1490,6 +1492,11 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
     toast(allPacientes.length > 1
       ? `✓ ${allPacientes.length} pacientes encontrados — revise e confirme`
       : '✓ Etiqueta lida! Revise e confirme','success');
+    if(quotaExhaustedFlag){
+      setTimeout(()=>{
+        toast('⚠️ Usando processamento pago — cota gratuita esgotada hoje. Renova à meia-noite.','info');
+      }, 1200);
+    }
 
   } catch(e) {
     const scanToastErr = document.getElementById('scan-toast');
@@ -1946,7 +1953,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v7</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v8</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
