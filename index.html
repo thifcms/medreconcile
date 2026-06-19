@@ -884,8 +884,16 @@ function renderAtendimentos(){
 
       ${state.batchPreview.map((p,i)=>`
         <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.70);">
-          <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'}</div>
+          <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Paciente ${i+1}</div>
+          <input class="input" placeholder="Nome do paciente *" value="${p.nome||''}"
+            oninput="state.batchPreview[${i}].nome=this.value"
+            style="margin-bottom:6px;font-size:13px;">
+          <input class="input" placeholder="Nº Atendimento"  value="${p.atendimento||''}"
+            oninput="state.batchPreview[${i}].atendimento=this.value"
+            style="margin-bottom:6px;font-size:13px;">
+          <input class="input" placeholder="Convênio" value="${p.convenio||''}"
+            oninput="state.batchPreview[${i}].convenio=this.value"
+            style="font-size:13px;">
         </div>`).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;">
         <button class="btn-p" style="flex:1;" onclick="confirmarLote()">✓ Salvar todos</button>
@@ -894,7 +902,7 @@ function renderAtendimentos(){
     </div>`:''}
 
     ${state.showForm?`
-    <div class="glass anim-up" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--green);">
+    <div id="form-edicao" class="glass anim-up" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--green);">
       <div style="font-size:14px;font-weight:900;color:var(--green2);margin-bottom:16px;">${state.editId?'✎ Editar':'+ Novo'} Atendimento</div>
       <input class="input" id="f-nome" placeholder="Paciente *" style="margin-bottom:10px;" value="${state.editId?(state.patients.find(p=>p.id===state.editId)?.nome||''):''}">
       <input class="input" id="f-atd" placeholder="Nº Atendimento *" style="margin-bottom:10px;" value="${state.editId?(state.patients.find(p=>p.id===state.editId)?.atendimento||''):''}">
@@ -1157,7 +1165,18 @@ function toggleForm(){
   if(opening) pushNavLayer('modal:form'); else popNavLayer();
   render();
 }
-function editPatient(id){state.editId=id;state.showForm=true;state.showRelatorio=false;pushNavLayer('modal:form');render();}
+function editPatient(id){
+  state.editId=id;
+  state.showForm=true;
+  state.showRelatorio=false;
+  pushNavLayer('modal:form');
+  render();
+  // Scroll automático para o formulário, garantindo que apareça visível sem precisar rolar
+  setTimeout(()=>{
+    const formEl = document.getElementById('form-edicao');
+    if(formEl) formEl.scrollIntoView({behavior:'smooth', block:'start'});
+  }, 60);
+}
 function askDelete(id){confirmDeleteId=id;render();}
 function removePatient(id){state.patients=state.patients.filter(p=>p.id!==id);confirmDeleteId=null;saveState();render();toast('Paciente removido','info');}
 function markPaid(id){
@@ -1927,7 +1946,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-17-v6</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v7</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
