@@ -1393,14 +1393,26 @@ async function handleCamera(input){
         throw new Error(prepErr.message || 'Falha ao preparar a imagem para envio');
       }
 
-      const response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
-        method: 'POST',
-        headers: { 'Accept':'application/json', 'Content-Type': 'application/json', 'x-api-key': AI_KEY },
-        body: JSON.stringify({
-          fileBase64: base64,
-          filename: file.name || 'etiqueta.jpg',
-          mimeType: mimeType,
-          prompt: `Extraia os dados desta etiqueta hospitalar. Se houver mais de uma etiqueta na imagem, extraia TODAS.
+      // Timeout inteligente de 25s: evita ficar travado minutos esperando
+      // cold start do servidor gratuito (Render) sem dar feedback ao usuário.
+      const extractController = new AbortController();
+      const extractTimeoutId = setTimeout(()=>{
+        extractController.abort();
+        console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 25s (possível cold start do servidor).');
+      }, 25000);
+
+      const startTimeNetwork = performance.now();
+      let response;
+      try {
+        response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
+          method: 'POST',
+          headers: { 'Accept':'application/json', 'Content-Type': 'application/json', 'x-api-key': AI_KEY },
+          signal: extractController.signal,
+          body: JSON.stringify({
+            fileBase64: base64,
+            filename: file.name || 'etiqueta.jpg',
+            mimeType: mimeType,
+            prompt: `Extraia os dados desta etiqueta hospitalar. Se houver mais de uma etiqueta na imagem, extraia TODAS.
 
 Para cada paciente, extraia EXATAMENTE estes campos:
 - nome_paciente: nome completo do paciente
@@ -1412,26 +1424,38 @@ Para cada paciente, extraia EXATAMENTE estes campos:
 ATENÇÃO ESPECIAL ao campo convenio: ele é OBRIGATÓRIO e está sempre presente na etiqueta, geralmente na linha "Conv:". Não deixe esse campo vazio.
 
 Retorne todos os pacientes encontrados no array "pacientes".`,
-          schema: {
-            type: 'object',
-            properties: {
-              pacientes: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    nome_paciente: {type:'string'},
-                    numero_atendimento: {type:'string'},
-                    convenio: {type:'string'},
-                    data_atendimento: {type:'string'}
+            schema: {
+              type: 'object',
+              properties: {
+                pacientes: {
+                  type: 'array',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      nome_paciente: {type:'string'},
+                      numero_atendimento: {type:'string'},
+                      convenio: {type:'string'},
+                      data_atendimento: {type:'string'}
+                    }
                   }
-                }
-              },
-              total_encontrados: {type:'number'}
+                },
+                total_encontrados: {type:'number'}
+              }
             }
-          }
-        })
-      });
+          })
+        });
+        clearTimeout(extractTimeoutId);
+        const networkDuration = ((performance.now()-startTimeNetwork)/1000).toFixed(2);
+        console.log(`⏱️ Tempo de rede [Audit AI]: ${networkDuration}s`);
+      } catch(fetchErr){
+        clearTimeout(extractTimeoutId);
+        const networkDuration = ((performance.now()-startTimeNetwork)/1000).toFixed(2);
+        console.log(`⏱️ Tempo de rede [Audit AI - Falha/Timeout]: ${networkDuration}s`);
+        if(fetchErr.name === 'AbortError'){
+          throw new Error('O servidor de IA demorou demais para responder (mais de 25s). Isso pode acontecer se ele estava "dormindo" — tente novamente em alguns segundos.');
+        }
+        throw new Error('Falha de conexão com o servidor de IA. Verifique sua internet e tente novamente.');
+      }
 
       if(!response.ok){
         let rawMsg = '';
@@ -1953,7 +1977,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v8</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v9</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
