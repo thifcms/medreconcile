@@ -1282,6 +1282,15 @@ async function resizeImageToBase64(file, maxSide=1200, quality=0.85){
       canvas.width = width; canvas.height = height;
       const ctx = canvas.getContext('2d');
       if(!ctx){ reject(new Error('Não foi possível processar a imagem')); return; }
+      // Pré-processamento visual: escala de cinza + contraste +20% para melhorar leitura de etiquetas
+      try {
+        if('filter' in ctx){
+          ctx.filter = 'grayscale(100%) contrast(1.20)';
+          console.log('🎨 Pré-processamento visual aplicado: contraste +20%, escala de cinza');
+        }
+      } catch(e){
+        console.warn('⚠️ Filtro canvas não suportado, usando imagem original:', e);
+      }
       ctx.drawImage(img, 0, 0, width, height);
       const dataUrl = canvas.toDataURL('image/jpeg', quality);
       resolve({ base64: dataUrl.split(',')[1], mimeType: 'image/jpeg' });
@@ -1488,7 +1497,7 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
       }
 
       const mapped = pacientes.map(p=>{
-        const conv = p.convenio || p.plano || p.plano_saude || p.nome_convenio || p.operadora || p.seguradora || p.plano_de_saude || '';
+        const conv = p.convenio || p.insurance || p.plano || p.plano_saude || p.nome_convenio || p.operadora || p.seguradora || p.plano_de_saude || '';
         if(!conv) console.warn('[MedReconcile] Convenio vazio para:', p);
         return {
           nome: p.nome_paciente || p.nome || p.paciente || '',
@@ -1977,7 +1986,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v9</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v11</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
