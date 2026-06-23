@@ -1374,22 +1374,22 @@ function friendlyAiError(status, rawMessage){
 }
 
 async function handleCameraFiles(files){
-  // Cria um input fake para reutilizar a lógica existente do handleCamera
-  const fakeInput = { files };
-  await handleCamera(fakeInput);
+  await handleCamera({ files });
 }
 
-async function handleCamera(input){
+function addToPhotoQueue(input){
   const files = Array.from(input.files||[]);
   if(!files.length) return;
+  // Salva referências dos arquivos ANTES de limpar o input
   state.photoQueue = [...(state.photoQueue||[]), ...files];
-  input.value = '';
   render();
   toast(`📷 ${files.length} foto${files.length>1?'s':''} adicionada${files.length>1?'s':''} — total na fila: ${state.photoQueue.length}`,'info');
+  // Limpa o input DEPOIS de salvar os arquivos na fila
+  setTimeout(()=>{ try{ input.value=''; }catch(e){} }, 100);
 }
 
 async function handleCamera(input){
-  const files = Array.from(input.files||[]);
+  const files = Array.isArray(input.files) ? input.files : Array.from(input.files||[]);
   if(!files.length) return;
 
   // Mensagem de progresso persistente
@@ -2019,7 +2019,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v14</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v16</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
