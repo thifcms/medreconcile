@@ -463,6 +463,7 @@ const state = {
   editId: null,
   mesFiltro: 'TODOS',
   batchPreview: null,
+  photoQueue: [], // fila de fotos aguardando análise
   showMesPicker: false,
   mesPickerTarget: null, // 'atendimentos' | 'pagos'
   mesPickerTempMes: null,
@@ -853,14 +854,14 @@ function renderAtendimentos(){
 
   return `
     <div style="display:flex;gap:10px;margin-bottom:16px;">
-      <div style="flex:1;display:flex;gap:6px;">
+      <div style="flex:1;display:flex;gap:6px;flex-wrap:wrap;">
         <label class="btn-p" style="flex:1;padding:13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;">
           📷 Câmera
-          <input type="file" accept="image/*,.heic,.heif" capture="environment" style="display:none;" onchange="handleCamera(this)">
+          <input type="file" accept="image/*,.heic,.heif" capture="environment" style="display:none;" onchange="addToPhotoQueue(this)">
         </label>
         <label class="btn-g" style="padding:13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;border-radius:14px;">
           🖼 Galeria
-          <input type="file" accept="image/*,application/pdf,.heic,.heif" multiple style="display:none;" onchange="handleCamera(this)">
+          <input type="file" accept="image/*,application/pdf,.heic,.heif" multiple style="display:none;" onchange="addToPhotoQueue(this)">
         </label>
         <label class="btn-g" style="padding:13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;border-radius:14px;">
           📊 Excel
@@ -870,10 +871,24 @@ function renderAtendimentos(){
       <button class="btn-g" style="padding:13px 16px;" onclick="toggleForm()">+ Manual</button>
     </div>
 
+    ${(state.photoQueue||[]).length>0?`
+    <div class="glass anim-up" style="padding:16px 20px;margin-bottom:16px;border-left:3px solid #5b8def;">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:10px;">
+        <div>
+          <div style="font-size:13px;font-weight:900;color:#3a6cd4;">📷 ${state.photoQueue.length} foto${state.photoQueue.length>1?'s':''} na fila</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">Adicione mais fotos ou analise agora</div>
+        </div>
+        <div style="display:flex;gap:8px;">
+          <button onclick="state.photoQueue=[];render();toast('Fila limpa','info');" style="padding:8px 12px;border-radius:10px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);color:#ef4444;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">✕ Limpar</button>
+          <button onclick="(async()=>{const q=[...state.photoQueue];state.photoQueue=[];await handleCameraFiles(q);})();" style="padding:8px 14px;border-radius:10px;background:linear-gradient(135deg,#5b8def,#3a6cd4);border:none;color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">🔍 Analisar ${state.photoQueue.length} foto${state.photoQueue.length>1?'s':''}</button>
+        </div>
+      </div>
+    </div>`:''}
+
     ${state.batchPreview?`
     <div class="glass anim-up" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--green);">
       <div style="font-size:14px;font-weight:900;color:var(--green2);margin-bottom:4px;">✓ Revisar antes de salvar</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">${state.batchPreview.length} etiquetas lidas — confira os dados</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">${state.batchPreview.length} etiqueta${state.batchPreview.length!==1?'s':''} lida${state.batchPreview.length!==1?'s':''} — confira os dados</div>
 
       <div style="margin-bottom:14px;">
         <label style="display:block;font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Data do Atendimento (aplicada a todos)</label>
@@ -884,7 +899,10 @@ function renderAtendimentos(){
 
       ${state.batchPreview.map((p,i)=>`
         <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.70);">
-          <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:6px;">Paciente ${i+1}</div>
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Paciente ${i+1}</div>
+            <button onclick="state.batchPreview.splice(${i},1);render();" style="background:rgba(239,68,68,0.12);border:none;border-radius:8px;padding:4px 10px;color:#ef4444;font-size:11px;font-weight:800;cursor:pointer;">✕ Remover</button>
+          </div>
           <input class="input" placeholder="Nome do paciente *" value="${p.nome||''}"
             oninput="state.batchPreview[${i}].nome=this.value"
             style="margin-bottom:6px;font-size:13px;">
@@ -1353,6 +1371,21 @@ function friendlyAiError(status, rawMessage){
     return 'Falha de conexão. Verifique sua internet e tente novamente.';
   }
   return 'Erro ao processar imagem. Tente novamente.';
+}
+
+async function handleCameraFiles(files){
+  // Cria um input fake para reutilizar a lógica existente do handleCamera
+  const fakeInput = { files };
+  await handleCamera(fakeInput);
+}
+
+async function handleCamera(input){
+  const files = Array.from(input.files||[]);
+  if(!files.length) return;
+  state.photoQueue = [...(state.photoQueue||[]), ...files];
+  input.value = '';
+  render();
+  toast(`📷 ${files.length} foto${files.length>1?'s':''} adicionada${files.length>1?'s':''} — total na fila: ${state.photoQueue.length}`,'info');
 }
 
 async function handleCamera(input){
@@ -1986,7 +2019,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v11</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v14</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
