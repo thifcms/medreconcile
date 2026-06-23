@@ -1530,8 +1530,9 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
       }
 
       const mapped = pacientes.map(p=>{
-        const conv = p.convenio || p.insurance || p.plano || p.plano_saude || p.nome_convenio || p.operadora || p.seguradora || p.plano_de_saude || '';
-        if(!conv) console.warn('[MedReconcile] Convenio vazio para:', p);
+        const conv = p.convenio || p.insurance || p.plano || p.plano_saude || p.nome_convenio || p.operadora || p.seguradora || p.plano_de_saude ||
+                     dataNode.convenio || dataNode.insurance || a.convenio || a.insurance || '';
+        if(!conv) console.warn('[MedReconcile] Convenio vazio para:', p, 'dataNode:', dataNode);
         return {
           nome: p.nome_paciente || p.nome || p.paciente || '',
           atendimento: p.numero_atendimento || p.atendimento || p.num_atendimento || p.id_atendimento || '',
@@ -2019,7 +2020,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v16</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v17</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
