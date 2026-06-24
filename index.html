@@ -1440,8 +1440,8 @@ async function handleCamera(input){
       const extractController = new AbortController();
       const extractTimeoutId = setTimeout(()=>{
         extractController.abort();
-        console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 25s (possível cold start do servidor).');
-      }, 25000);
+        console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 40s.');
+      }, 40000);
 
       const startTimeNetwork = performance.now();
       let response;
@@ -2024,7 +2024,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v18</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v19</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
