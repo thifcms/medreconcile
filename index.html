@@ -1454,16 +1454,20 @@ async function handleCamera(input){
             fileBase64: base64,
             filename: file.name || 'etiqueta.jpg',
             mimeType: mimeType,
-            prompt: `Extraia os dados desta etiqueta hospitalar. Se houver mais de uma etiqueta na imagem, extraia TODAS.
+            prompt: `Analise esta imagem de etiqueta hospitalar, tela de sistema hospitalar ou tabela de agenda de consultório. O texto pode estar em qualquer orientação — reoriente mentalmente para ler corretamente.
 
-Para cada paciente, extraia EXATAMENTE estes campos:
-- nome_paciente: nome completo do paciente
-- numero_atendimento: número do atendimento
-- convenio: nome do convênio/plano de saúde (geralmente aparece como "Conv:", "Convênio:", "Plano:" — exemplos: Unimed, Bradesco Saúde, SulAmérica, Amil, Particular)
-- data_nascimento: data de nascimento (campo "Dt. Nasc:")
-- data_atendimento: data do atendimento (campo "DI/Hr:" ou "Atend:")
+Extraia EXATAMENTE estes campos para CADA paciente encontrado:
+- nome_paciente: nome completo do paciente (geralmente após "Leito:" ou "Paciente:" em etiquetas, ou na coluna de nome em tabelas de agenda). NUNCA confunda com nome de médico (identificado por "Dr.", "Dra." ou CRM)
+- numero_atendimento: número de atendimento (após "Atend:" ou "Atendimento:" em etiquetas, ou primeiro campo numérico em tabelas de agenda)
+- convenio: convênio ou plano de saúde — OBRIGATÓRIO, sempre presente. Em etiquetas busque "Conv:", "Convênio:", "Plano:". Em telas de sistema busque "Classe:". Em tabelas de agenda é a coluna após o número de atendimento (ex: "Sul América", "Bradesco Saúde" — sem truncamentos como "BRADESCO SE...")
+- data_atendimento: data de entrada/atendimento/cirurgia em formato DD/MM/YYYY (em etiquetas: "Dt.Entr:", "Dt. Entr:", "Atend:"; em telas de sistema: "Data da Cirurgia:", "Data de Entrada:"; em tabelas de agenda: coluna "Data/Hora"). NUNCA use a data de nascimento ("DTNasc:", "Nasc:")
+- data_nascimento: data de nascimento se disponível
 
-ATENÇÃO ESPECIAL ao campo convenio: ele é OBRIGATÓRIO e está sempre presente na etiqueta, geralmente na linha "Conv:". Não deixe esse campo vazio.
+Para tabelas de agenda com múltiplos pacientes por foto, cada linha é um paciente separado no formato:
+[Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade]
+Exemplo: "5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026"
+
+ATENÇÃO: o campo convenio é OBRIGATÓRIO. Nunca deixe vazio. Se aparecer truncado (ex: "BRADESCO SE..."), complete com o nome correto ("Bradesco Saúde").
 
 Retorne todos os pacientes encontrados no array "pacientes".`,
             schema: {
@@ -2020,7 +2024,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v17</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v18</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
