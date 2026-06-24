@@ -1388,6 +1388,38 @@ function addToPhotoQueue(input){
   setTimeout(()=>{ try{ input.value=''; }catch(e){} }, 100);
 }
 
+// ── CONFIRMAÇÃO VISUAL ANTES DO ENVIO ────────────────────────────────────────
+function confirmarQualidadeFoto(file, base64, mimeType){
+  return new Promise((resolve)=>{
+    // Cria o modal de confirmação
+    const overlay = document.createElement('div');
+    overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.75);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+    
+    const modal = document.createElement('div');
+    modal.style.cssText = 'background:#fff;border-radius:20px;padding:20px;max-width:400px;width:100%;box-shadow:0 20px 60px rgba(0,0,0,0.3);';
+    
+    const isImagem = mimeType.startsWith('image/');
+    const previewHtml = isImagem 
+      ? `<img src="data:${mimeType};base64,${base64}" style="width:100%;border-radius:12px;margin-bottom:14px;max-height:300px;object-fit:contain;background:#f5f5f5;">`
+      : `<div style="width:100%;height:120px;background:#f5f7fa;border-radius:12px;margin-bottom:14px;display:flex;align-items:center;justify-content:center;font-size:40px;">📄</div>`;
+    
+    modal.innerHTML = `
+      ${previewHtml}
+      <div style="font-size:14px;font-weight:900;color:#1e293b;margin-bottom:6px;">A imagem está nítida e legível?</div>
+      <div style="font-size:12px;color:#64748b;margin-bottom:16px;">Verifique se o texto está claro e sem reflexos antes de enviar para a IA.</div>
+      <div style="display:flex;gap:10px;">
+        <button id="btn-nova-foto" style="flex:1;padding:12px;border-radius:12px;border:1px solid #e2e8f0;background:#f8fafc;color:#64748b;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">✕ Nova foto</button>
+        <button id="btn-confirmar-foto" style="flex:2;padding:12px;border-radius:12px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">✓ Sim, enviar</button>
+      </div>`;
+    
+    overlay.appendChild(modal);
+    document.body.appendChild(overlay);
+    
+    document.getElementById('btn-confirmar-foto').onclick = ()=>{ document.body.removeChild(overlay); resolve(true); };
+    document.getElementById('btn-nova-foto').onclick = ()=>{ document.body.removeChild(overlay); resolve(false); };
+  });
+}
+
 async function handleCamera(input){
   const files = Array.isArray(input.files) ? input.files : Array.from(input.files||[]);
   if(!files.length) return;
@@ -1435,6 +1467,13 @@ async function handleCamera(input){
         throw new Error(prepErr.message || 'Falha ao preparar a imagem para envio');
       }
 
+      // Confirmação visual antes de enviar para a Audit AI
+      const confirmado = await confirmarQualidadeFoto(file, base64, mimeType);
+      if(!confirmado){
+        toast('📷 Foto descartada — tire uma nova foto mais nítida','info');
+        continue;
+      }
+
       // Timeout inteligente de 25s: evita ficar travado minutos esperando
       // cold start do servidor gratuito (Render) sem dar feedback ao usuário.
       const extractController = new AbortController();
@@ -1454,20 +1493,30 @@ async function handleCamera(input){
             fileBase64: base64,
             filename: file.name || 'etiqueta.jpg',
             mimeType: mimeType,
-            prompt: `Analise esta imagem de etiqueta hospitalar, tela de sistema hospitalar ou tabela de agenda de consultório. O texto pode estar em qualquer orientação — reoriente mentalmente para ler corretamente.
+            prompt: `Analise esta imagem. Antes de extrair qualquer dado, identifique mentalmente o tipo de documento:
+- ETIQUETA FÍSICA INDIVIDUAL
+- TELA DE SISTEMA DIGITAL
+- TABELA/LISTA DE AGENDA (múltiplos pacientes)
+- FOLHA CIRÚRGICA / DESCRIÇÃO OPERATÓRIA
 
 Extraia EXATAMENTE estes campos para CADA paciente encontrado:
-- nome_paciente: nome completo do paciente (geralmente após "Leito:" ou "Paciente:" em etiquetas, ou na coluna de nome em tabelas de agenda). NUNCA confunda com nome de médico (identificado por "Dr.", "Dra." ou CRM)
-- numero_atendimento: número de atendimento (após "Atend:" ou "Atendimento:" em etiquetas, ou primeiro campo numérico em tabelas de agenda)
-- convenio: convênio ou plano de saúde — OBRIGATÓRIO, sempre presente. Em etiquetas busque "Conv:", "Convênio:", "Plano:". Em telas de sistema busque "Classe:". Em tabelas de agenda é a coluna após o número de atendimento (ex: "Sul América", "Bradesco Saúde" — sem truncamentos como "BRADESCO SE...")
-- data_atendimento: data de entrada/atendimento/cirurgia em formato DD/MM/YYYY (em etiquetas: "Dt.Entr:", "Dt. Entr:", "Atend:"; em telas de sistema: "Data da Cirurgia:", "Data de Entrada:"; em tabelas de agenda: coluna "Data/Hora"). NUNCA use a data de nascimento ("DTNasc:", "Nasc:")
+- nome_paciente: nome completo do paciente. NUNCA confunda com nome de médico (identificado por "Dr.", "Dra." ou CRM)
+- numero_atendimento: número de atendimento
+- convenio: convênio ou plano de saúde — OBRIGATÓRIO. Em etiquetas: "Conv:", "Convênio:", "Plano:". Em telas de sistema: "Classe:". Em tabelas de agenda: coluna após o número de atendimento. Nunca deixe vazio. Se aparecer truncado (ex: "BRADESCO SE..."), complete com o nome correto ("Bradesco Saúde").
+- data_atendimento: data de entrada/atendimento em DD/MM/YYYY. NUNCA use a data de nascimento ("DTNasc:", "Nasc:")
 - data_nascimento: data de nascimento se disponível
 
-Para tabelas de agenda com múltiplos pacientes por foto, cada linha é um paciente separado no formato:
-[Nº Atendimento | Convênio | Hora | Nome do Paciente | Status | Data/Hora | Idade]
-Exemplo: "5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026"
+REGRAS POR TIPO DE DOCUMENTO:
 
-ATENÇÃO: o campo convenio é OBRIGATÓRIO. Nunca deixe vazio. Se aparecer truncado (ex: "BRADESCO SE..."), complete com o nome correto ("Bradesco Saúde").
+ETIQUETA FÍSICA: use OCR letra por letra com fidelidade absoluta. NUNCA aplique lógica de colunas ou tabela — isso embaralha os nomes. Para letras parcialmente visíveis, reconstrua caractere por caractere.
+
+TELA DE SISTEMA: filtre ruídos de interface. Busque "Classe:" como sinônimo de convênio. Diferencie nome do paciente de nomes de médicos.
+
+TABELA DE AGENDA (use SOMENTE se identificar explicitamente múltiplos pacientes em formato de tabela): cada linha é um paciente no formato [Nº Atendimento | Convênio | Hora | Nome | Status | Data]. Exemplo: "5315008 Sul América 13:00 Rafael de Oliveira Barbosa Executada 23/06/2026"
+
+FOLHA CIRÚRGICA: extraia dados do cabeçalho. NUNCA confunda cirurgião ("Cirurgião:", "Dr.") com nome do paciente ("Paciente:", "Nome:", "Beneficiário:").
+
+DADOS ILEGÍVEIS: se completamente ilegível por reflexo ou rasura severa, deixe o campo vazio. Para dados parcialmente visíveis, tente reconstruir.
 
 Retorne todos os pacientes encontrados no array "pacientes".`,
             schema: {
@@ -2024,7 +2073,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v19</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v21</div>`;
 }
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
