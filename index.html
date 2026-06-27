@@ -449,7 +449,7 @@ const _saved = loadState();
 const state = {
   activeTab: 'atendimentos',
   activeHosp: _saved.activeHosp || null,
-  profile: _saved.profile || { name:'', crm:'', especialidade:'', email:'', appPassword:'123456' },
+  profile: _saved.profile || { name:'', crm:'', especialidade:'', email:'', appPassword:'1234' },
   hospitals: _saved.hospitals || [],
   patients: _saved.patients || [],  // sempre vazio no primeiro acesso
   showForm: false,
@@ -1999,7 +1999,14 @@ function renderConfig(){
       <input class="input" id="prof-email" placeholder="E-mail" value="${state.profile.email||''}" style="margin-bottom:16px;">
       <button class="btn-p" style="width:100%;" onclick="saveProfile()">💾 Salvar Perfil</button>
     </div>
-    <div class="lbl" style="margin-bottom:10px;">Exportação</div>
+    <div class="lbl" style="margin-bottom:10px;">Segurança</div>
+    <div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
+      <div style="font-size:13px;color:var(--text2);font-weight:700;margin-bottom:14px;">🔒 Trocar PIN de Acesso</div>
+      <input class="input" id="pin-atual" type="password" placeholder="PIN atual" maxlength="4" style="margin-bottom:10px;letter-spacing:4px;font-size:18px;">
+      <input class="input" id="pin-novo" type="password" placeholder="Novo PIN (4 dígitos)" maxlength="4" style="margin-bottom:10px;letter-spacing:4px;font-size:18px;">
+      <input class="input" id="pin-confirma" type="password" placeholder="Confirmar novo PIN" maxlength="4" style="margin-bottom:16px;letter-spacing:4px;font-size:18px;">
+      <button onclick="trocarPin()" style="width:100%;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">🔑 Trocar PIN</button>
+    </div>
     <div style="margin-bottom:20px;">
       <div class="glass" style="padding:20px;cursor:pointer;" onclick="downloadCSV()">
         <div style="font-size:28px;margin-bottom:8px;">📗</div>
@@ -2073,8 +2080,36 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v22</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v24</div>`;
 }
+function trocarPin(){
+  const pinAtual = document.getElementById('pin-atual')?.value?.trim();
+  const pinNovo = document.getElementById('pin-novo')?.value?.trim();
+  const pinConfirma = document.getElementById('pin-confirma')?.value?.trim();
+  const correctPin = state.profile?.appPassword || '1234';
+
+  if(!pinAtual || !pinNovo || !pinConfirma){
+    toast('Preencha todos os campos de PIN','error'); return;
+  }
+  if(pinAtual !== correctPin){
+    toast('PIN atual incorreto','error'); return;
+  }
+  if(pinNovo.length !== 4 || !/^\d{4}$/.test(pinNovo)){
+    toast('O novo PIN deve ter exatamente 4 dígitos','error'); return;
+  }
+  if(pinNovo !== pinConfirma){
+    toast('Os PINs não coincidem','error'); return;
+  }
+
+  state.profile.appPassword = pinNovo;
+  saveState();
+  saveProfile();
+  toast('✓ PIN alterado com sucesso!','success');
+  document.getElementById('pin-atual').value = '';
+  document.getElementById('pin-novo').value = '';
+  document.getElementById('pin-confirma').value = '';
+}
+
 function saveProfile(){
   const nome = document.getElementById('prof-nome')?.value.trim();
   const crm  = document.getElementById('prof-crm')?.value.trim();
@@ -2361,7 +2396,7 @@ function removeOrfaos(){
 function resetApp(){
   state.hospitals = [];
   state.patients = [];
-  state.profile = {name:'',crm:'',especialidade:'',email:'',appPassword:'123456'};
+  state.profile = {name:'',crm:'',especialidade:'',email:'',appPassword:'1234'};
   state.activeHosp = null;
   state.showResetConfirm = false;
   popNavLayer();
@@ -2384,7 +2419,7 @@ async function encerrarSessao(){
   // Limpa estado local
   state.hospitals = [];
   state.patients = [];
-  state.profile = {name:'',crm:'',especialidade:'',email:'',appPassword:'123456'};
+  state.profile = {name:'',crm:'',especialidade:'',email:'',appPassword:'1234'};
   state.activeHosp = null;
   pinInput = '';
   document.getElementById('app').style.display='none';
@@ -2499,7 +2534,7 @@ function editPatientInline(id){
 }
 
 // ── PIN LOGIN ─────────────────────────────────────────────────────────────────
-const CORRECT_PIN = (loadState().profile && loadState().profile.appPassword) || '123456';
+const CORRECT_PIN = (loadState().profile && loadState().profile.appPassword) || '1234';
 let pinInput = '';
 
 function renderLoginScreen(mode){
@@ -2648,7 +2683,7 @@ async function saveToFirebase(){
 }
 
 function showPinOrApp(){
-  const pin = state.profile.appPassword || '123456';
+  const pin = state.profile.appPassword || '1234';
   if(pin){
     document.getElementById('pin-screen').style.display='block';
     renderPin();
@@ -2683,7 +2718,7 @@ function renderPin(err){
         <div style="font-size:13px;color:var(--text3);margin-bottom:28px;font-weight:600;">thifcms@gmail.com</div>
         <div class="glass" style="padding:28px;">
           <div style="display:flex;gap:18px;justify-content:center;margin-bottom:28px;">
-            ${[0,1,2,3,4,5].map(i=>`<div style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(46,200,102,0.40);transition:all 0.18s;
+            ${[0,1,2,3].map(i=>`<div style="width:14px;height:14px;border-radius:50%;border:2px solid rgba(46,200,102,0.40);transition:all 0.18s;
               ${i<pinInput.length?'background:var(--green);border-color:var(--green);transform:scale(1.2);box-shadow:0 0 8px rgba(46,200,102,0.50);':''}"></div>`).join('')}
           </div>
           ${err?`<div style="color:var(--red);font-size:13px;font-weight:800;margin-bottom:14px;animation:fadeIn .3s ease;">${err}</div>`:''}
@@ -2722,22 +2757,48 @@ function showForgotPin(){
     </div>`;
 }
 
-function sendRecovery(){
-  const email = document.getElementById('recovery-email')?.value || 'thifcms@gmail.com';
+async function sendRecovery(){
+  const email = document.getElementById('recovery-email')?.value?.trim() || '';
+  if(!email){ toast('Digite seu e-mail','error'); return; }
+  
+  // Verifica se o email bate com o email cadastrado no perfil
+  const profileEmail = state.profile?.email || '';
+  if(profileEmail && email.toLowerCase() !== profileEmail.toLowerCase()){
+    document.getElementById('pin-screen').innerHTML = `
+    <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;">
+      <div style="text-align:center;width:100%;max-width:340px;">
+        <div style="font-size:42px;margin-bottom:16px;">❌</div>
+        <div style="font-size:20px;font-weight:900;color:var(--text);margin-bottom:8px;">E-mail não encontrado</div>
+        <div style="font-size:13px;color:var(--text3);margin-bottom:24px;">O e-mail informado não corresponde ao cadastrado neste app.</div>
+        <button onclick="showForgotPin()" class="btn-p" style="width:100%;padding:14px;">← Tentar novamente</button>
+      </div>
+    </div>`;
+    return;
+  }
+
+  // Envia o PIN atual por Firebase Auth (reset de senha do app via email)
+  try{
+    const {sendPasswordResetEmail} = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js');
+    // Tenta enviar reset pelo Firebase Auth
+    await sendPasswordResetEmail(window.fbAuth, email);
+  }catch(e){
+    // Se não tiver conta Firebase, mostra o PIN diretamente na tela (já que é local)
+    console.warn('Firebase reset falhou, mostrando PIN local:', e.message);
+  }
+
+  // Mostra o PIN atual salvo localmente (já que o PIN é local, não Firebase)
+  const pinAtual = state.profile?.appPassword || '1234';
+  
   document.getElementById('pin-screen').innerHTML = `
     <div style="min-height:100vh;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:32px;position:relative;">
       <div style="position:absolute;inset:0;background:radial-gradient(ellipse 70% 60% at 20% 20%,rgba(46,200,102,0.08) 0%,transparent 60%);pointer-events:none;"></div>
       <div style="position:relative;z-index:1;text-align:center;width:100%;max-width:340px;">
-        <div style="width:88px;height:88px;border-radius:28px;background:linear-gradient(135deg,rgba(46,200,102,0.12),rgba(46,200,102,0.05));display:flex;align-items:center;justify-content:center;font-size:42px;margin:0 auto 24px;border:1px solid rgba(46,200,102,0.18);">✉️</div>
-        <div style="font-size:22px;font-weight:900;color:var(--text);margin-bottom:10px;">Link Enviado!</div>
-        <div style="font-size:13px;color:var(--text3);font-weight:600;line-height:1.7;margin-bottom:6px;">Verifique sua caixa de entrada em</div>
-        <div style="font-size:14px;font-weight:800;color:var(--green2);margin-bottom:28px;">${email}</div>
-        <div class="glass" style="padding:20px 24px;margin-bottom:20px;text-align:left;">
-          ${['Abra o e-mail com o link de redefinição','Clique no link e crie um novo PIN de acesso','Volte ao app e entre com seu novo PIN'].map((t,i)=>`
-          <div style="display:flex;align-items:flex-start;gap:12px;${i<2?'margin-bottom:14px;':''}">
-            <span style="font-size:16px;flex-shrink:0;">${['1️⃣','2️⃣','3️⃣'][i]}</span>
-            <div style="font-size:13px;color:var(--text2);font-weight:600;line-height:1.5;">${t}</div>
-          </div>`).join('')}
+        <div style="width:88px;height:88px;border-radius:28px;background:linear-gradient(135deg,rgba(46,200,102,0.12),rgba(46,200,102,0.05));display:flex;align-items:center;justify-content:center;font-size:42px;margin:0 auto 24px;border:1px solid rgba(46,200,102,0.18);">🔑</div>
+        <div style="font-size:22px;font-weight:900;color:var(--text);margin-bottom:10px;">Seu PIN de Acesso</div>
+        <div style="font-size:13px;color:var(--text3);font-weight:600;line-height:1.7;margin-bottom:20px;">Anote seu PIN e guarde em local seguro.</div>
+        <div class="glass" style="padding:28px;margin-bottom:20px;">
+          <div style="font-size:11px;font-weight:800;color:var(--text3);letter-spacing:1px;text-transform:uppercase;margin-bottom:12px;">PIN atual</div>
+          <div style="font-size:42px;font-weight:900;color:var(--green2);letter-spacing:8px;">${pinAtual}</div>
         </div>
         <button onclick="pinInput='';renderPin()" class="btn-p" style="width:100%;padding:14px;">← Voltar ao PIN</button>
       </div>
@@ -2748,7 +2809,7 @@ function pinTap(k){
   if(k==='⌫'){pinInput=pinInput.slice(0,-1);renderPin();return;}
   pinInput+=k;
   renderPin();
-  if(pinInput.length===6){
+  if(pinInput.length===4){
     if(pinInput===CORRECT_PIN){
       setTimeout(()=>{
         document.getElementById('pin-screen').style.display='none';
