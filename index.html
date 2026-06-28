@@ -2006,6 +2006,17 @@ function renderConfig(){
       <input class="input" id="pin-novo" type="password" placeholder="Novo PIN (4 dígitos)" maxlength="4" style="margin-bottom:10px;letter-spacing:4px;font-size:18px;">
       <input class="input" id="pin-confirma" type="password" placeholder="Confirmar novo PIN" maxlength="4" style="margin-bottom:16px;letter-spacing:4px;font-size:18px;">
       <button onclick="trocarPin()" style="width:100%;padding:13px;border-radius:14px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">🔑 Trocar PIN</button>
+      <div style="margin-top:16px;padding-top:16px;border-top:1px solid rgba(0,0,0,0.06);">
+        <div style="font-size:12px;color:var(--text3);font-weight:700;margin-bottom:10px;">🔐 Biometria (Face ID / Impressão Digital)</div>
+        ${localStorage.getItem('biometria_registrada')==='1'
+          ?`<div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+              <div style="font-size:12px;color:var(--green2);font-weight:700;">✓ Biometria ativada</div>
+            </div>
+            <button onclick="desativarBiometria()" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);color:#ef4444;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">Desativar biometria</button>`
+          :`<button onclick="registrarBiometria()" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(46,200,102,0.3);background:rgba(46,200,102,0.08);color:var(--green2);font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">Ativar biometria</button>
+            <div style="font-size:11px;color:var(--text3);margin-top:8px;">Funciona com Face ID, Touch ID ou impressão digital. Requer HTTPS e Safari no iOS.</div>`
+        }
+      </div>
     </div>
     <div style="margin-bottom:20px;">
       <div class="glass" style="padding:20px;cursor:pointer;" onclick="downloadCSV()">
@@ -2080,8 +2091,79 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v24</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v25</div>`;
 }
+// ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
+async function registrarBiometria(){
+  if(!window.PublicKeyCredential){ toast('Biometria não suportada neste navegador','error'); return; }
+  try{
+    const challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+    const userId = new Uint8Array(16);
+    crypto.getRandomValues(userId);
+
+    const credential = await navigator.credentials.create({
+      publicKey:{
+        challenge,
+        rp:{ name:'MedReconcile', id: location.hostname },
+        user:{ id: userId, name: state.profile?.email||'medreconcile', displayName: state.profile?.name||'Médico' },
+        pubKeyCredParams:[{type:'public-key',alg:-7},{type:'public-key',alg:-257}],
+        authenticatorSelection:{ authenticatorAttachment:'platform', userVerification:'required' },
+        timeout: 60000
+      }
+    });
+
+    if(credential){
+      localStorage.setItem('biometria_registrada','1');
+      localStorage.setItem('biometria_credId', btoa(String.fromCharCode(...new Uint8Array(credential.rawId))));
+      toast('✓ Biometria ativada com sucesso!','success');
+      render();
+    }
+  }catch(e){
+    if(e.name==='NotAllowedError') toast('Biometria cancelada pelo usuário','info');
+    else toast('Erro ao registrar biometria: '+e.message,'error');
+  }
+}
+
+async function autenticarBiometria(){
+  if(!window.PublicKeyCredential){ toast('Biometria não suportada neste navegador','error'); return; }
+  try{
+    const challenge = new Uint8Array(32);
+    crypto.getRandomValues(challenge);
+
+    const assertion = await navigator.credentials.get({
+      publicKey:{
+        challenge,
+        rpId: location.hostname,
+        userVerification:'required',
+        timeout: 60000
+      }
+    });
+
+    if(assertion){
+      // Biometria aprovada — entra no app
+      pinInput='';
+      document.getElementById('pin-screen').style.display='none';
+      document.getElementById('app').style.display='block';
+      state.activeTab='inicio';
+      navStack=['tab:inicio'];
+      try{ history.replaceState({navAnchor:true,base:true},'',location.href); }catch(_){}
+      showTab('inicio');
+      toast('✓ Acesso liberado por biometria','success');
+    }
+  }catch(e){
+    if(e.name==='NotAllowedError') toast('Biometria cancelada — use o PIN','info');
+    else toast('Falha na biometria — use o PIN','error');
+  }
+}
+
+function desativarBiometria(){
+  localStorage.removeItem('biometria_registrada');
+  localStorage.removeItem('biometria_credId');
+  toast('Biometria desativada','info');
+  render();
+}
+
 function trocarPin(){
   const pinAtual = document.getElementById('pin-atual')?.value?.trim();
   const pinNovo = document.getElementById('pin-novo')?.value?.trim();
@@ -2730,10 +2812,13 @@ function renderPin(err){
           </div>
         </div>
         <div style="margin-top:20px;display:flex;flex-direction:column;align-items:center;gap:10px;">
+          ${localStorage.getItem('biometria_registrada')==='1'?`
+          <button onclick="autenticarBiometria()" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,rgba(46,200,102,0.12),rgba(46,200,102,0.06));border:1px solid rgba(46,200,102,0.25);border-radius:16px;padding:12px 24px;color:var(--green2);font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">
+            🔐 Usar biometria
+          </button>`:''}
           <button onclick="showForgotPin()" style="background:none;border:none;color:var(--green2);font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">
             Esqueci minha senha
           </button>
-          
         </div>
       </div>
     </div>`;
