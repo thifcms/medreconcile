@@ -2091,7 +2091,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v25</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v26</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
@@ -2131,17 +2131,23 @@ async function autenticarBiometria(){
     const challenge = new Uint8Array(32);
     crypto.getRandomValues(challenge);
 
+    const credIdB64 = localStorage.getItem('biometria_credId');
+    const allowCredentials = credIdB64 ? [{
+      id: Uint8Array.from(atob(credIdB64), c => c.charCodeAt(0)),
+      type: 'public-key'
+    }] : [];
+
     const assertion = await navigator.credentials.get({
       publicKey:{
         challenge,
         rpId: location.hostname,
+        allowCredentials,
         userVerification:'required',
         timeout: 60000
       }
     });
 
     if(assertion){
-      // Biometria aprovada — entra no app
       pinInput='';
       document.getElementById('pin-screen').style.display='none';
       document.getElementById('app').style.display='block';
@@ -2813,15 +2819,19 @@ function renderPin(err){
         </div>
         <div style="margin-top:20px;display:flex;flex-direction:column;align-items:center;gap:10px;">
           ${localStorage.getItem('biometria_registrada')==='1'?`
-          <button onclick="autenticarBiometria()" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,rgba(46,200,102,0.12),rgba(46,200,102,0.06));border:1px solid rgba(46,200,102,0.25);border-radius:16px;padding:12px 24px;color:var(--green2);font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">
+          <button id="btn-biometria" onclick="autenticarBiometria()" style="display:flex;align-items:center;gap:8px;background:linear-gradient(135deg,rgba(46,200,102,0.12),rgba(46,200,102,0.06));border:1px solid rgba(46,200,102,0.25);border-radius:16px;padding:12px 24px;color:var(--green2);font-size:14px;font-weight:800;cursor:pointer;font-family:inherit;">
             🔐 Usar biometria
-          </button>`:''}
+          </button>`:'<div id="btn-biometria" style="display:none;"></div>'}
           <button onclick="showForgotPin()" style="background:none;border:none;color:var(--green2);font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;">
             Esqueci minha senha
           </button>
         </div>
       </div>
     </div>`;
+  // Disparo automático da biometria se estiver registrada
+  if(localStorage.getItem('biometria_registrada')==='1'){
+    setTimeout(()=>{ autenticarBiometria(); }, 600);
+  }
 }
 
 function showForgotPin(){
