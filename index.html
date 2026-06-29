@@ -1454,8 +1454,6 @@ async function handleCamera(input){
   try {
     for(let fi=0; fi<files.length; fi++){
       const file = files[fi];
-      const msgEl0 = document.getElementById('scan-msg');
-      if(msgEl0 && files.length>1) msgEl0.textContent = `Processando foto ${fi+1} de ${files.length}...`;
 
       // Converte imagem para base64 (com compressão automática e suporte a HEIC/PDF)
       let base64, mimeType;
@@ -1474,13 +1472,15 @@ async function handleCamera(input){
         continue;
       }
 
-      // Timeout inteligente de 25s: evita ficar travado minutos esperando
+      // Mostra progresso só depois da confirmação
+      const msgEl0 = document.getElementById('scan-msg');
+      if(msgEl0) msgEl0.textContent = files.length>1 ? `Processando foto ${fi+1} de ${files.length}...` : 'Enviando para a IA...';
       // cold start do servidor gratuito (Render) sem dar feedback ao usuário.
       const extractController = new AbortController();
       const extractTimeoutId = setTimeout(()=>{
         extractController.abort();
-        console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 40s.');
-      }, 40000);
+        console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 60s.');
+      }, 60000);
 
       const startTimeNetwork = performance.now();
       let response;
@@ -1621,10 +1621,15 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
   } catch(e) {
     const scanToastErr = document.getElementById('scan-toast');
     if(scanToastErr){ clearInterval(scanToastErr._interval); scanToastErr.remove(); }
-    console.error(e);
-    const friendly = e && e.message && (e.message.includes('Limite de uso')||e.message.includes('Chave de acesso')||e.message.includes('muito grande')||e.message.includes('indisponível')||e.message.includes('Falha de conexão')||e.message.includes('Falha ao preparar'))
-      ? e.message
-      : friendlyAiError(0, e && e.message);
+    console.error('[MedReconcile] Erro na extração:', e);
+    let friendly = 'Erro ao processar imagem. Tente novamente.';
+    if(e && e.message){
+      if(e.message.includes('abort')||e.message.includes('AbortError')||e.name==='AbortError'){
+        friendly = 'O servidor de IA demorou demais (60s). Tente novamente em alguns segundos.';
+      } else if(e.message.includes('Limite')||e.message.includes('Chave')||e.message.includes('grande')||e.message.includes('indisponível')||e.message.includes('conexão')||e.message.includes('preparar')){
+        friendly = e.message;
+      }
+    }
     toast(friendly,'error');
   }
 }
@@ -2091,7 +2096,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v27</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v29</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
