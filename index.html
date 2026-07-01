@@ -516,7 +516,13 @@ function popNavLayer(){
     try{ history.back(); }catch(_){ ignoreNextPopstate=false; }
   }
 }
-function closeMesPicker(){ state.showMesPicker=false; popNavLayer(); render(); }
+function closeMesPicker(){ 
+  state.showMesPicker=false; 
+  const ov=document.getElementById('mes-picker-overlay');
+  if(ov) ov.remove();
+  popNavLayer(); 
+  render(); 
+}
 function confirmMesPicker(){
   const valor = state.mesPickerTempMes===null ? 'TODOS' : `${String(state.mesPickerTempMes+1).padStart(2,'0')}/${state.mesPickerTempAno}`;
   if(state.mesPickerTarget==='pagos') state.pagosFiltro = valor;
@@ -530,15 +536,24 @@ function mesPickerSetMes(i){ state.mesPickerTempMes=i; render(); }
 function mesPickerSetAno(a){ state.mesPickerTempAno=a; render(); }
 
 function renderMesPickerModal(){
+  // Remove modal anterior se existir
+  const existing = document.getElementById('mes-picker-overlay');
+  if(existing) existing.remove();
   if(!state.showMesPicker) return '';
   const all = state.patients.filter(p=>p.hospId===state.activeHosp);
   const base = state.mesPickerTarget==='pagos' ? all.filter(a=>a.status==='PAGO') : all;
-  const anosDisponiveis = Array.from(new Set(base.filter(a=>a.data).map(a=>new Date(a.data).getFullYear()))).sort();
+  const anosDisponiveis = Array.from(new Set(base.filter(a=>a.data).map(a=>{
+    const parts=a.data.split('-');
+    return parts.length===3?parseInt(parts[0]):new Date(a.data).getFullYear();
+  }))).sort();
   const anos = anosDisponiveis.length ? anosDisponiveis : [new Date().getFullYear()];
   const mesSel = state.mesPickerTempMes;
   const anoSel = state.mesPickerTempAno;
-  return `
-  <div style="position:fixed;inset:0;background:rgba(20,30,25,0.45);backdrop-filter:blur(4px);z-index:200;display:flex;align-items:center;justify-content:center;padding:20px;" onclick="if(event.target===this)closeMesPicker();">
+  const overlay = document.createElement('div');
+  overlay.id = 'mes-picker-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,25,0.55);z-index:500;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.onclick = (e)=>{ if(e.target===overlay) closeMesPicker(); };
+  overlay.innerHTML = `
     <div class="glass anim-up" style="width:100%;max-width:340px;padding:20px;border-radius:24px;">
       <div style="font-size:14px;font-weight:900;color:var(--text);margin-bottom:14px;text-align:center;">Filtrar por período</div>
       <button onclick="mesPickerSetTodos()" style="width:100%;padding:10px;border-radius:12px;margin-bottom:12px;border:1px solid rgba(255,255,255,0.70);
@@ -562,8 +577,9 @@ function renderMesPickerModal(){
         <button class="btn-g" style="flex:1;" onclick="closeMesPicker()">Cancelar</button>
         <button class="btn-p" style="flex:1;" onclick="confirmMesPicker()">Aplicar</button>
       </div>
-    </div>
-  </div>`;
+    </div>`;
+  document.body.appendChild(overlay);
+  return '';
 }
 
 function toast(msg, type='info'){
@@ -780,7 +796,35 @@ function renderInicio(){
 // ── UNIDADES ──────────────────────────────────────────────────────────────────
 function renderUnidades(){
   const hosps = state.hospitals;
+  const hoje = new Date();
+  const mmAtual = String(hoje.getMonth()+1).padStart(2,'0');
+  const aaaAtual = String(hoje.getFullYear());
+  const nomeMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][hoje.getMonth()];
+
+  // Totais globais de todas as unidades
+  const todosP = state.patients;
+  const totalAReceber = todosP.filter(p=>p.status!=='PAGO'&&p.status!=='RETORNO').length;
+  const patsMesAtual = todosP.filter(a=>{
+    if(!a.data) return false;
+    const parts=a.data.split('-');
+    if(parts.length===3) return parts[1]===mmAtual && parts[0]===aaaAtual;
+    const d=new Date(a.data);
+    return String(d.getMonth()+1).padStart(2,'0')===mmAtual && String(d.getFullYear())===aaaAtual;
+  });
+
   return `
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+      <div class="glass anim-up" style="padding:16px 18px;">
+        <div class="lbl" style="margin-bottom:6px;">TOTAL A RECEBER</div>
+        <div style="font-size:36px;font-weight:900;color:var(--orange);">${totalAReceber}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;font-weight:700;">todas as unidades</div>
+      </div>
+      <div class="glass anim-up" style="padding:16px 18px;border-left:3px solid var(--green);">
+        <div class="lbl" style="margin-bottom:4px;">${nomeMes.toUpperCase()}</div>
+        <div style="font-size:36px;font-weight:900;color:var(--green2);">${patsMesAtual.length}</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:4px;font-weight:700;">atendidos no mês</div>
+      </div>
+    </div>
     <div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
       <div class="lbl">Nova Unidade</div>
       <input class="input" id="inp-hosp" placeholder="Nome do hospital ou clínica" style="margin-bottom:12px;">
@@ -2168,7 +2212,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v33</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v34</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
