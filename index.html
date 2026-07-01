@@ -843,8 +843,8 @@ function activateHosp(id){
 function renderAtendimentos(){
   if(!state.activeHosp) return `<div class="glass anim-up" style="padding:48px;text-align:center;"><div style="font-size:48px;margin-bottom:12px;">🏢</div><div style="font-weight:800;color:var(--text2);">Nenhuma unidade ativa</div><div style="font-size:13px;color:var(--text3);margin-top:6px;">Selecione um hospital na aba Início.</div></div>`;
   const all = state.patients.filter(p=>p.hospId===state.activeHosp);
-  const MESES = ['TODOS',...Array.from(new Set(all.map(a=>{if(!a.data)return null;const d=new Date(a.data);return`${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;})).values()).filter(Boolean)].sort();
-  const filtered = state.mesFiltro==='TODOS' ? all : all.filter(a=>{if(!a.data)return false;const d=new Date(a.data);return`${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`===state.mesFiltro;});
+  const MESES = ['TODOS',...Array.from(new Set(all.map(a=>{if(!a.data)return null;const parts=a.data.split('-');if(parts.length===3){return`${parts[1]}/${parts[0]}`;}const d=new Date(a.data);return`${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;})).values()).filter(Boolean)].sort();
+  const filtered = state.mesFiltro==='TODOS' ? all : all.filter(a=>{if(!a.data)return false;const parts=a.data.split('-');let mm,yyyy;if(parts.length===3){mm=parts[1];yyyy=parts[0];}else{const d=new Date(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}return`${mm}/${yyyy}`===state.mesFiltro;});
   const pendentes = filtered.filter(a=>a.status!=='PAGO'&&a.status!=='RETORNO');
   const pagos = filtered.filter(a=>a.status==='PAGO');
   const tPend = pendentes.reduce((s,a)=>s+(a.valor||0),0);
@@ -897,10 +897,26 @@ function renderAtendimentos(){
           style="font-size:14px;">
       </div>
 
-      ${state.batchPreview.map((p,i)=>`
-        <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.70);">
+      ${state.batchPreview.map((p,i)=>{
+        // Verifica se é retorno: mesmo nome+convênio nos últimos 30 dias
+        const nomeNorm = (p.nome||'').toLowerCase().trim();
+        const convNorm = (p.convenio||'').toLowerCase().trim();
+        const hoje = new Date();
+        const limite = new Date(hoje); limite.setDate(hoje.getDate()-30);
+        const isRetorno = state.patients.some(px=>{
+          const pxNome = (px.nome||'').toLowerCase().trim();
+          const pxConv = (px.convenio||'').toLowerCase().trim();
+          const pxData = px.data ? new Date(px.data) : null;
+          return pxNome===nomeNorm && pxConv===convNorm && pxData && pxData>=limite && pxData<=hoje;
+        });
+        if(isRetorno && !p.hasOwnProperty('isRetorno')) state.batchPreview[i].isRetorno = true;
+        return `
+        <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid ${p.isRetorno?'rgba(91,141,239,0.40)':'rgba(255,255,255,0.70)'};">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
-            <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Paciente ${i+1}</div>
+            <div style="display:flex;align-items:center;gap:8px;">
+              <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;">Paciente ${i+1}</div>
+              ${p.isRetorno?`<span style="font-size:10px;font-weight:900;background:rgba(91,141,239,0.15);color:#3a6cd4;border-radius:6px;padding:2px 8px;">↩ RETORNO</span>`:''}
+            </div>
             <button onclick="state.batchPreview.splice(${i},1);render();" style="background:rgba(239,68,68,0.12);border:none;border-radius:8px;padding:4px 10px;color:#ef4444;font-size:11px;font-weight:800;cursor:pointer;">✕ Remover</button>
           </div>
           <input class="input" placeholder="Nome do paciente *" value="${p.nome||''}"
@@ -911,8 +927,14 @@ function renderAtendimentos(){
             style="margin-bottom:6px;font-size:13px;">
           <input class="input" placeholder="Convênio" value="${p.convenio||''}"
             oninput="state.batchPreview[${i}].convenio=this.value"
-            style="font-size:13px;">
-        </div>`).join('')}
+            style="${p.isRetorno?'margin-bottom:8px;':''}font-size:13px;">
+          ${p.isRetorno?`
+          <div style="display:flex;gap:8px;margin-top:8px;">
+            <button onclick="state.batchPreview[${i}].isRetorno=true;render();" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===true?'#3a6cd4':'rgba(91,141,239,0.3)'};background:${p.isRetorno===true?'rgba(91,141,239,0.15)':'transparent'};color:#3a6cd4;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">↩ Confirmar retorno</button>
+            <button onclick="state.batchPreview[${i}].isRetorno=false;render();" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===false?'#64748b':'rgba(100,116,139,0.3)'};background:${p.isRetorno===false?'rgba(100,116,139,0.12)':'transparent'};color:#64748b;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Não é retorno</button>
+          </div>`:''}
+        </div>`;
+      }).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;">
         <button class="btn-p" style="flex:1;" onclick="confirmarLote()">✓ Salvar todos</button>
         <button class="btn-g" onclick="state.batchPreview=null;state.batchDate=null;popNavLayer();render();">Cancelar</button>
@@ -940,18 +962,53 @@ function renderAtendimentos(){
       </div>
     </div>`:''}
 
-    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:16px;">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;">
       <div class="glass" style="padding:16px 18px;">
         <div class="lbl" style="margin-bottom:6px;">PACIENTES A RECEBER</div>
         <div style="font-size:36px;font-weight:900;color:var(--orange);">${pendentes.length}</div>
         <div style="font-size:11px;color:var(--text3);margin-top:4px;font-weight:700;">aguardando pagamento</div>
       </div>
       <div class="glass" style="padding:16px 18px;">
-        <div class="lbl" style="margin-bottom:6px;">TOTAL RECEBIDO</div>
-        <div style="font-size:22px;font-weight:900;color:var(--green2);">${fmtBRL(tPago)}</div>
-        <div style="font-size:11px;color:var(--text3);margin-top:4px;font-weight:700;">${pagos.length} conciliados</div>
+        <div class="lbl" style="margin-bottom:4px;">TOTAL RECEBIDO</div>
+        <div style="font-size:20px;font-weight:900;color:var(--green2);">${fmtBRL(tPago)}</div>
+        ${(()=>{
+          const desc = state.profile?.descontoPercent||0;
+          if(desc>0){
+            const liquido = tPago*(1-desc/100);
+            return `<div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:700;">Líquido (${desc}%): <span style="color:var(--green2)">${fmtBRL(liquido)}</span></div>`;
+          }
+          return `<div style="font-size:11px;color:var(--text3);margin-top:4px;font-weight:700;">${pagos.length} conciliados</div>`;
+        })()}
       </div>
     </div>
+    ${(()=>{
+      // Balão de pacientes do mês atual
+      const hoje = new Date();
+      const mmAtual = String(hoje.getMonth()+1).padStart(2,'0');
+      const aaaAtual = String(hoje.getFullYear());
+      const patsMesAtual = all.filter(a=>{
+        if(!a.data) return false;
+        const parts=a.data.split('-');
+        if(parts.length===3) return parts[1]===mmAtual && parts[0]===aaaAtual;
+        const d=new Date(a.data);
+        return String(d.getMonth()+1).padStart(2,'0')===mmAtual && String(d.getFullYear())===aaaAtual;
+      });
+      if(patsMesAtual.length===0) return '';
+      const nomeMes = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'][hoje.getMonth()];
+      return `
+      <div class="glass" style="padding:14px 18px;margin-bottom:10px;border-left:3px solid var(--green);">
+        <div style="display:flex;justify-content:space-between;align-items:center;">
+          <div>
+            <div class="lbl" style="margin-bottom:2px;">ATENDIDOS EM ${nomeMes.toUpperCase()}</div>
+            <div style="font-size:28px;font-weight:900;color:var(--green2);">${patsMesAtual.length} <span style="font-size:14px;color:var(--text3);">pacientes</span></div>
+          </div>
+          <div style="text-align:right;">
+            <div style="font-size:11px;color:var(--text3);font-weight:700;">${patsMesAtual.filter(a=>a.status==='PAGO').length} pagos</div>
+            <div style="font-size:11px;color:var(--orange);font-weight:700;">${patsMesAtual.filter(a=>a.status!=='PAGO'&&a.status!=='RETORNO').length} pendentes</div>
+          </div>
+        </div>
+      </div>`;
+    })()}
 
     <div style="display:flex;gap:8px;align-items:center;margin-bottom:14px;">
       <button onclick="openMesPicker('atendimentos')" style="flex:1;padding:11px 14px;font-size:13px;border-radius:14px;text-align:left;display:flex;align-items:center;gap:8px;
@@ -1135,8 +1192,11 @@ function renderPagosView(){
   if(state.pagosFiltro!=='TODOS'){
     pagos = pagos.filter(a=>{
       if(!a.data) return false;
-      const d = new Date(a.data);
-      return `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`===state.pagosFiltro;
+      const parts=a.data.split('-');
+      let mm,yyyy;
+      if(parts.length===3){mm=parts[1];yyyy=parts[0];}
+      else{const d=new Date(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}
+      return `${mm}/${yyyy}`===state.pagosFiltro;
     });
   }
   const total = pagos.reduce((s,a)=>s+(a.valorPago||a.valor||0),0);
@@ -1465,14 +1525,7 @@ async function handleCamera(input){
         throw new Error(prepErr.message || 'Falha ao preparar a imagem para envio');
       }
 
-      // Confirmação visual antes de enviar para a Audit AI
-      const confirmado = await confirmarQualidadeFoto(file, base64, mimeType);
-      if(!confirmado){
-        toast('📷 Foto descartada — tire uma nova foto mais nítida','info');
-        continue;
-      }
-
-      // Mostra progresso só depois da confirmação
+      // Mostra progresso
       const msgEl0 = document.getElementById('scan-msg');
       if(msgEl0) msgEl0.textContent = files.length>1 ? `Processando foto ${fi+1} de ${files.length}...` : 'Enviando para a IA...';
       // cold start do servidor gratuito (Render) sem dar feedback ao usuário.
@@ -1655,13 +1708,21 @@ function confirmarLote(){
   if(!state.batchPreview)return;
   const total = state.batchPreview.length;
   const dataLote = state.batchDate || today();
-  state.batchPreview.forEach(p=>state.patients.push({id:uid(),hospId:state.activeHosp,...p,data:dataLote,valor:0,status:'PENDENTE'}));
+  state.batchPreview.forEach(p=>state.patients.push({
+    id:uid(),
+    hospId:state.activeHosp,
+    ...p,
+    data:dataLote,
+    valor:0,
+    status: p.isRetorno===true ? 'RETORNO' : 'PENDENTE'
+  }));
   saveState();
   state.batchPreview=null;
   state.batchDate=null;
   popNavLayer();
   render();
-  toast(`✓ ${total} pacientes salvos!`,'success');
+  const retornos = state.patients.filter(p=>p.status==='RETORNO').length;
+  toast(`✓ ${total} pacientes salvos!${retornos>0?` (${retornos} marcado${retornos>1?'s':''} como retorno)`:''}`,'success');
 }
 
 // ── AUDITAGEM ─────────────────────────────────────────────────────────────────
@@ -1891,8 +1952,11 @@ function renderConfig(){
   // Pacientes do mês atual
   const patsMes = allPats.filter(a => {
     if(!a.data) return false;
-    const d = new Date(a.data);
-    return `${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}` === mesAtual;
+    const parts = a.data.split('-');
+    let mm, yyyy;
+    if(parts.length===3){mm=parts[1];yyyy=parts[0];}
+    else{const d=new Date(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}
+    return `${mm}/${yyyy}` === mesAtual;
   });
 
   // Estimativa do mês = para cada paciente do mês, aplica a média histórica do convênio
@@ -2001,7 +2065,15 @@ function renderConfig(){
       <input class="input" id="prof-nome" placeholder="Nome no Prontuário" value="${state.profile.name||''}" style="margin-bottom:10px;">
       <input class="input" id="prof-crm" placeholder="CRM (000000-UF)" value="${state.profile.crm||''}" style="margin-bottom:10px;">
       <input class="input" id="prof-esp" placeholder="Especialidade" value="${state.profile.especialidade||''}" style="margin-bottom:10px;">
-      <input class="input" id="prof-email" placeholder="E-mail" value="${state.profile.email||''}" style="margin-bottom:16px;">
+      <input class="input" id="prof-email" placeholder="E-mail" value="${state.profile.email||''}" style="margin-bottom:10px;">
+      <div style="margin-bottom:16px;">
+        <label style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:6px;">Desconto sobre recebido (%)</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input class="input" id="prof-desconto" type="number" min="0" max="100" step="0.1" placeholder="Ex: 27.5" value="${state.profile.descontoPercent||''}" style="flex:1;">
+          <div style="font-size:12px;color:var(--text3);font-weight:700;white-space:nowrap;">% (IR, secretaria, etc)</div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:6px;">O valor líquido será exibido nos balões após dedução desta porcentagem.</div>
+      </div>
       <button class="btn-p" style="width:100%;" onclick="saveProfile()">💾 Salvar Perfil</button>
     </div>
     <div class="lbl" style="margin-bottom:10px;">Segurança</div>
@@ -2096,7 +2168,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v29</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v33</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
@@ -2210,6 +2282,8 @@ function saveProfile(){
   state.profile.crm  = crm;
   state.profile.especialidade = esp;
   if(email) state.profile.email = email;
+  const descontoVal = parseFloat(document.getElementById('prof-desconto')?.value||'0')||0;
+  state.profile.descontoPercent = descontoVal >= 0 && descontoVal <= 100 ? descontoVal : 0;
   saveState(); // Persiste no localStorage
   render();
   toast('Perfil salvo!','success');
