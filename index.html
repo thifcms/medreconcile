@@ -996,9 +996,9 @@ function renderAtendimentos(){
       </select>
       <input class="input" id="f-data" type="date" value="${state.editId?(state.patients.find(p=>p.id===state.editId)?.data||today()):today()}" style="margin-bottom:16px;">
       ${state.editId && state.patients.find(p=>p.id===state.editId)?.status==='RETORNO' ? `
-      <button onclick="unmarkReturn('${state.editId}');state.showForm=false;state.editId=null;popNavLayer();render();" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(91,141,239,0.25);background:rgba(91,141,239,0.10);color:#3a6cd4;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Remover de Retornos (voltar para pendentes)</button>
+      <button type="button" onclick="unmarkReturn('${state.editId}');state.showForm=false;state.editId=null;popNavLayer();render();" style="width:100%;padding:11px;border-radius:12px;border:1px solid rgba(91,141,239,0.25);background:rgba(91,141,239,0.10);color:#3a6cd4;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Remover de Retornos (voltar para pendentes)</button>
       ` : state.editId ? `
-      <button onclick="markReturn('${state.editId}');state.showForm=false;state.editId=null;popNavLayer();render();" style="width:100%;padding:11px;border-radius:12px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Marcar como Retorno</button>
+      <button type="button" onclick="markReturn('${state.editId}');state.showForm=false;state.editId=null;popNavLayer();render();" style="width:100%;padding:11px;border-radius:12px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:13px;font-weight:800;cursor:pointer;font-family:inherit;margin-bottom:10px;">↩ Marcar como Retorno</button>
       ` : ''}
       <div style="display:flex;gap:10px;">
         <button class="btn-p" style="flex:1;" onclick="savePatient()">${state.editId?'Salvar':'Confirmar'}</button>
@@ -1721,10 +1721,12 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
     console.error('[MedReconcile] Erro na extração:', e);
     let friendly = 'Erro ao processar imagem. Tente novamente.';
     if(e && e.message){
-      if(e.message.includes('abort')||e.message.includes('AbortError')||e.name==='AbortError'){
-        friendly = 'O servidor de IA demorou demais (60s). Tente novamente em alguns segundos.';
-      } else if(e.message.includes('Limite')||e.message.includes('Chave')||e.message.includes('grande')||e.message.includes('indisponível')||e.message.includes('conexão')||e.message.includes('preparar')){
+      if(e.name==='AbortError'||e.message.toLowerCase().includes('abort')){
+        friendly = 'O servidor de IA demorou demais (60s). Tente novamente.';
+      } else if(e.message.includes('grande')||e.message.includes('Limite')||e.message.includes('Chave')||e.message.includes('indisponível')||e.message.includes('conexão')||e.message.includes('preparar')||e.message.includes('carregar')){
         friendly = e.message;
+      } else {
+        friendly = `Erro: ${e.message}`;
       }
     }
     toast(friendly,'error');
@@ -2212,7 +2214,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v34</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v36</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
