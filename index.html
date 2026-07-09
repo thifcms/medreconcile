@@ -1577,7 +1577,7 @@ async function handleCamera(input){
       const extractTimeoutId = setTimeout(()=>{
         extractController.abort();
         console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 60s.');
-      }, 60000);
+      }, 90000);
 
       const startTimeNetwork = performance.now();
       let response;
@@ -1644,7 +1644,7 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
         const networkDuration = ((performance.now()-startTimeNetwork)/1000).toFixed(2);
         console.log(`⏱️ Tempo de rede [Audit AI - Falha/Timeout]: ${networkDuration}s`);
         if(fetchErr.name === 'AbortError'){
-          throw new Error('O servidor de IA demorou demais para responder (mais de 25s). Isso pode acontecer se ele estava "dormindo" — tente novamente em alguns segundos.');
+          throw new Error('O servidor de IA demorou demais para responder (mais de 90s). Tente novamente em alguns segundos.');
         }
         throw new Error('Falha de conexão com o servidor de IA. Verifique sua internet e tente novamente.');
       }
@@ -2214,7 +2214,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v36</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v37</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
