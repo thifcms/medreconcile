@@ -457,6 +457,9 @@ const state = {
   showMesDropdown: false,
   concilPreview: null,
   showManualConcil: false,
+  concilPeriodoInicio: '',
+  concilPeriodoFim: '',
+  ultimaConcil: null, // snapshot dos pacientes antes da última conciliação
   showResetConfirm: false,
   expandId: null,
   modalPatient: null,
@@ -827,7 +830,11 @@ function renderUnidades(){
     </div>
     <div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
       <div class="lbl">Nova Unidade</div>
-      <input class="input" id="inp-hosp" placeholder="Nome do hospital ou clínica" style="margin-bottom:12px;">
+      <input class="input" id="inp-hosp" placeholder="Nome do hospital ou clínica" style="margin-bottom:10px;">
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px;">
+        <input class="input" id="inp-hosp-desconto" type="number" min="0" max="100" step="0.1" placeholder="Desconto % (ex: 27.5)" style="flex:1;">
+        <div style="font-size:11px;color:var(--text3);font-weight:700;white-space:nowrap;">% desconto</div>
+      </div>
       <button class="btn-p" style="width:100%;" onclick="addHosp()">+ Cadastrar Unidade</button>
     </div>
     <div class="lbl" style="margin-bottom:12px;">Unidades Habilitadas (${hosps.length})</div>
@@ -853,8 +860,10 @@ function renderUnidades(){
               <div style="font-size:12px;font-weight:700;color:${isActive?'var(--green2)':'var(--text3)'};">${isActive?'● Ativa':'Inativa'}</div>
               ${pats.length>0?`<div style="font-size:11px;color:var(--text3);font-weight:600;">${pend} pendentes · ${pago} pagos</div>`:''}
             </div>
+            ${h.descontoPercent>0?`<div style="font-size:11px;color:#5b8def;font-weight:700;margin-top:3px;">Desconto: ${h.descontoPercent}%</div>`:''}
           </div>
           <div style="display:flex;gap:8px;flex-shrink:0;">
+            <button onclick="abrirConfigHosp('${h.id}')" style="padding:8px 10px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:rgba(255,255,255,0.7);font-size:14px;cursor:pointer;">⚙️</button>
             ${isActive
               ? `<div style="padding:7px 12px;border-radius:10px;background:rgba(46,200,102,0.10);border:1px solid rgba(46,200,102,0.20);">
                   <div style="font-size:11px;font-weight:800;color:var(--green2);">✓ Selecionada</div>
@@ -874,7 +883,65 @@ function renderUnidades(){
       </div>`;
     }).join('')}`;
 }
-function addHosp(){const n=document.getElementById('inp-hosp').value.trim();if(!n)return;state.hospitals.push({id:uid(),name:n});saveState();render();toast('Unidade adicionada!','success');}
+function abrirConfigHosp(id){
+  const h = state.hospitals.find(h=>h.id===id);
+  if(!h) return;
+  const overlay = document.createElement('div');
+  overlay.id = 'config-hosp-overlay';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.onclick = (e)=>{ if(e.target===overlay) fecharConfigHosp(); };
+  overlay.innerHTML = `
+    <div class="glass" style="width:100%;max-width:360px;padding:24px;border-radius:24px;">
+      <div style="font-size:16px;font-weight:900;color:var(--text);margin-bottom:4px;">⚙️ ${h.name}</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:20px;">Configurações da unidade</div>
+
+      <div style="margin-bottom:20px;">
+        <label style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;display:block;margin-bottom:8px;">Desconto sobre recebido (%)</label>
+        <div style="display:flex;align-items:center;gap:8px;">
+          <input id="config-hosp-desconto" type="number" min="0" max="100" step="0.1"
+            placeholder="Ex: 27.5"
+            value="${h.descontoPercent||''}"
+            class="input" style="flex:1;font-size:16px;letter-spacing:1px;">
+          <div style="font-size:12px;color:var(--text3);font-weight:700;white-space:nowrap;">%</div>
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;">Aplicado no balão "Total Recebido" desta unidade (IR, secretaria, etc).</div>
+      </div>
+
+      <div style="display:flex;gap:10px;">
+        <button onclick="fecharConfigHosp()" class="btn-g" style="flex:1;padding:13px;">Cancelar</button>
+        <button onclick="salvarConfigHosp('${id}')" class="btn-p" style="flex:2;padding:13px;">💾 Salvar</button>
+      </div>
+    </div>`;
+  document.body.appendChild(overlay);
+}
+
+function fecharConfigHosp(){
+  const ov = document.getElementById('config-hosp-overlay');
+  if(ov) ov.remove();
+}
+
+function salvarConfigHosp(id){
+  const val = parseFloat(document.getElementById('config-hosp-desconto')?.value||'0')||0;
+  state.hospitals = state.hospitals.map(h=>h.id===id?{...h,descontoPercent:val>=0&&val<=100?val:0}:h);
+  saveState();
+  fecharConfigHosp();
+  render();
+  toast(`✓ Configurações salvas — desconto de ${val}%`,'success');
+}
+
+function salvarDescontoHosp(id){
+  const val = parseFloat(document.getElementById(`desconto-${id}`)?.value||'0')||0;
+  state.hospitals = state.hospitals.map(h=>h.id===id?{...h,descontoPercent:val>=0&&val<=100?val:0}:h);
+  saveState();render();toast(`✓ Desconto de ${val}% salvo para este hospital`,'success');
+}
+
+function addHosp(){
+  const n=document.getElementById('inp-hosp').value.trim();
+  if(!n)return;
+  const desconto=parseFloat(document.getElementById('inp-hosp-desconto')?.value||'0')||0;
+  state.hospitals.push({id:uid(),name:n,descontoPercent:desconto>=0&&desconto<=100?desconto:0});
+  saveState();render();toast('Unidade adicionada!','success');
+}
 function removeHosp(id){state.hospitals=state.hospitals.filter(h=>h.id!==id);if(state.activeHosp===id)state.activeHosp=null;confirmDeleteHospId=null;saveState();render();toast('Unidade removida','info');}
 function activateHosp(id){
   state.activeHosp=id;saveState();
@@ -1016,7 +1083,8 @@ function renderAtendimentos(){
         <div class="lbl" style="margin-bottom:4px;">TOTAL RECEBIDO</div>
         <div style="font-size:20px;font-weight:900;color:var(--green2);">${fmtBRL(tPago)}</div>
         ${(()=>{
-          const desc = state.profile?.descontoPercent||0;
+          const hospAtivo = state.hospitals.find(h=>h.id===state.activeHosp);
+          const desc = hospAtivo?.descontoPercent || state.profile?.descontoPercent || 0;
           if(desc>0){
             const liquido = tPago*(1-desc/100);
             return `<div style="font-size:11px;color:var(--text3);margin-top:2px;font-weight:700;">Líquido (${desc}%): <span style="color:var(--green2)">${fmtBRL(liquido)}</span></div>`;
@@ -1781,20 +1849,34 @@ function renderAuditagem(){
     <div class="hero-concil anim-up">
       <div style="position:relative;z-index:2;">
         <div style="font-weight:900;font-size:21px;color:#fff;margin-bottom:6px;">Conciliação Inteligente</div>
-        <div style="font-size:13px;color:rgba(255,255,255,.82);line-height:1.6;margin-bottom:20px;">Cruze o extrato do hospital com seus lançamentos via IA.</div>
-        <div style="background:rgba(255,255,255,0.16);border-radius:14px;padding:10px 16px;display:inline-block;border:1px solid rgba(255,255,255,0.22);margin-bottom:20px;">
+        <div style="font-size:13px;color:rgba(255,255,255,.82);line-height:1.6;margin-bottom:16px;">Cruze o extrato do hospital com seus lançamentos via IA.</div>
+        <div style="background:rgba(255,255,255,0.16);border-radius:14px;padding:10px 16px;display:inline-block;border:1px solid rgba(255,255,255,0.22);margin-bottom:16px;">
           <div style="font-size:9px;font-weight:800;color:rgba(255,255,255,.60);text-transform:uppercase;letter-spacing:1px;">Aguardando</div>
           <div style="font-size:18px;font-weight:900;color:#fff;">${pendentes.length} <span style="font-size:12px;opacity:.8;">Pacientes</span></div>
         </div>
+        <div style="background:rgba(255,255,255,0.12);border-radius:12px;padding:12px;margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;color:rgba(255,255,255,.70);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Período do relatório (filtra por data de atendimento)</div>
+          <div style="display:flex;gap:8px;align-items:center;">
+            <input type="date" id="concil-inicio" value="${state.concilPeriodoInicio||''}" onchange="state.concilPeriodoInicio=this.value"
+              style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(255,255,255,0.90);font-size:13px;font-family:inherit;">
+            <span style="color:rgba(255,255,255,.7);font-size:12px;font-weight:700;">até</span>
+            <input type="date" id="concil-fim" value="${state.concilPeriodoFim||''}" onchange="state.concilPeriodoFim=this.value"
+              style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(255,255,255,0.90);font-size:13px;font-family:inherit;">
+          </div>
+        </div>
         <div style="display:flex;gap:10px;">
-          <label style="flex:1;padding:16px;background:#fff;color:#065F46;font-weight:900;font-size:14px;border:none;border-radius:16px;cursor:pointer;font-family:inherit;box-shadow:0 10px 24px rgba(0,0,0,0.12);display:flex;align-items:center;justify-content:center;gap:8px;">
+          <label style="flex:1;padding:14px;background:#fff;color:#065F46;font-weight:900;font-size:14px;border:none;border-radius:16px;cursor:pointer;font-family:inherit;box-shadow:0 10px 24px rgba(0,0,0,0.12);display:flex;align-items:center;justify-content:center;gap:8px;">
             📄 Carregar Relatório
             <input type="file" accept=".xlsx,.xls,.csv,.pdf,image/*" style="display:none;" onchange="handleRelatorio(this)">
           </label>
-          <button onclick="showManualConcil()" style="padding:16px;background:rgba(255,255,255,0.22);color:#fff;font-weight:800;font-size:13px;border:1px solid rgba(255,255,255,0.30);border-radius:16px;cursor:pointer;font-family:inherit;white-space:nowrap;">
+          <button onclick="showManualConcil()" style="padding:14px;background:rgba(255,255,255,0.22);color:#fff;font-weight:800;font-size:13px;border:1px solid rgba(255,255,255,0.30);border-radius:16px;cursor:pointer;font-family:inherit;white-space:nowrap;">
             ✍ Manual
           </button>
         </div>
+        ${state.ultimaConcil?`
+        <button onclick="reverterConcil()" style="width:100%;margin-top:10px;padding:10px;background:rgba(239,68,68,0.20);border:1px solid rgba(239,68,68,0.35);border-radius:12px;color:#fca5a5;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">
+          ↩ Reverter última conciliação (${state.ultimaConcil.length} pacientes)
+        </button>`:''}
       </div>
     </div>
     ${state.concilPreview?`
@@ -1805,7 +1887,7 @@ function renderAuditagem(){
         <div style="background:rgba(46,200,102,0.06);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid rgba(46,200,102,0.14);display:flex;justify-content:space-between;align-items:center;">
           <div>
             <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'} · ${fmtDt(p.data)}</div>
           </div>
           <span class="badge-g">✓ Encontrado</span>
         </div>`).join('')}
@@ -1817,13 +1899,18 @@ function renderAuditagem(){
 
     ${state.showManualConcil&&pendentes.length>0?`
     <div class="glass anim-up" style="padding:20px;margin-bottom:16px;">
-      <div style="font-size:14px;font-weight:900;color:var(--text);margin-bottom:4px;">✍ Conciliação Manual</div>
-      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Marque individualmente os pacientes que foram pagos</div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+        <div>
+          <div style="font-size:14px;font-weight:900;color:var(--text);">✍ Conciliação Manual</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px;">Marque individualmente os pacientes que foram pagos</div>
+        </div>
+        <button onclick="state.showManualConcil=false;render();" style="padding:6px 12px;border-radius:10px;border:1px solid rgba(0,0,0,0.10);background:rgba(255,255,255,0.7);font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">✕ Fechar</button>
+      </div>
       ${pendentes.map(p=>`
         <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:12px 14px;margin-bottom:8px;border:1px solid rgba(255,255,255,0.75);display:flex;justify-content:space-between;align-items:center;">
           <div>
             <div style="font-weight:800;font-size:14px;color:var(--text);">${p.nome}</div>
-            <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'}</div>
+            <div style="font-size:12px;color:var(--text3);margin-top:2px;">ID: ${p.atendimento} · ${p.convenio||'—'} · ${fmtDt(p.data)}</div>
           </div>
           <button onclick="markPaidManual('${p.id}')" style="padding:8px 14px;border-radius:10px;border:none;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;
             background:linear-gradient(135deg,#35d46e,#1a8f45);color:#fff;box-shadow:0 3px 10px rgba(46,200,102,0.35);">
@@ -1845,9 +1932,21 @@ function renderAuditagem(){
     <div class="lbl" style="margin-bottom:10px;">Conciliados (${pagos.length})</div>
     <div class="glass" style="padding:0;overflow:hidden;margin-bottom:20px;">
       ${pagos.map((a,i)=>`
-      <div style="padding:14px 18px;${i<pagos.length-1?'border-bottom:1px solid rgba(0,0,0,0.04);':''}display:flex;justify-content:space-between;align-items:center;">
-        <div><div style="font-weight:800;font-size:14px;color:var(--text2);">${a.nome}</div><div style="font-size:11px;color:var(--text3);margin-top:2px;">ID: ${a.atendimento}</div></div>
-        <div style="text-align:right;"><div style="font-weight:800;font-size:14px;color:var(--green2);">${fmtBRL(a.valorPago||a.valor)}</div><span class="badge-g" style="margin-top:4px;">✓</span></div>
+      <div style="padding:14px 18px;${i<pagos.length-1?'border-bottom:1px solid rgba(0,0,0,0.04);':''}display:flex;justify-content:space-between;align-items:center;gap:10px;">
+        <div style="flex:1;min-width:0;">
+          <div style="font-weight:800;font-size:14px;color:var(--text2);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${a.nome}</div>
+          <div style="font-size:11px;color:var(--text3);margin-top:2px;">ID: ${a.atendimento} · ${fmtDt(a.data)}</div>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px;flex-shrink:0;">
+          <div style="text-align:right;">
+            <div style="font-weight:800;font-size:14px;color:var(--green2);">${fmtBRL(a.valorPago||a.valor)}</div>
+            <span class="badge-g" style="margin-top:4px;">✓ Pago</span>
+          </div>
+          <button onclick="reverterPaciente('${a.id}')" title="Reverter para pendente"
+            style="padding:6px 10px;border-radius:10px;border:1px solid rgba(239,68,68,0.25);background:rgba(239,68,68,0.08);color:#ef4444;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;">
+            ↩
+          </button>
+        </div>
       </div>`).join('')}
     </div>`:''}
 
@@ -1895,8 +1994,48 @@ async function handleRelatorio(input){
       const wb = XLSX.read(buf,{type:'array'});
       const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
       const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
-      const encontrados = pends.filter(p=>rows.some(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento||(nn(v)===nn(p.nome)&&v.length>3))));
-      state.concilPreview = encontrados.map(p=>({...p,status:'PAGO',valorPago:p.valor}));
+      
+      // Detecta coluna de valor pago na planilha
+      const colsValor = ['r$ a pagar','a pagar','rapagar','valor pago','vl.repasse','vl repasse','vlrepasse','repasse','valor repasse','honorarios','honorários','vlr pago','vlr.pago'];
+      const detectarColValor = (row) => {
+        const keys = Object.keys(row);
+        return keys.find(k => colsValor.includes(nn(k)));
+      };
+      const colValor = rows.length ? detectarColValor(rows[0]) : null;
+      
+      // Função para extrair valor numérico da célula
+      const extrairValor = (v) => {
+        if(!v) return null;
+        const s = String(v).replace(/R\$\s*/gi,'').replace(/\./g,'').replace(',','.').trim();
+        const n = parseFloat(s);
+        return isNaN(n) ? null : n;
+      };
+
+      // Filtra pendentes pelo período de data se definido
+      let pendsFiltrados = pends;
+      if(state.concilPeriodoInicio || state.concilPeriodoFim){
+        pendsFiltrados = pends.filter(p=>{
+          if(!p.data) return true;
+          const parts = p.data.split('-');
+          const dataP = parts.length===3 ? p.data : null;
+          if(!dataP) return true;
+          if(state.concilPeriodoInicio && dataP < state.concilPeriodoInicio) return false;
+          if(state.concilPeriodoFim && dataP > state.concilPeriodoFim) return false;
+          return true;
+        });
+        if(pendsFiltrados.length < pends.length)
+          toast(`Filtro de período: ${pendsFiltrados.length} de ${pends.length} pacientes no período`,'info');
+      }
+
+      const encontrados = pendsFiltrados.filter(p=>rows.some(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento||(nn(v)===nn(p.nome)&&v.length>3))));
+      state.concilPreview = encontrados.map(p=>{
+        // Tenta encontrar o valor pago na linha correspondente da planilha
+        const rowMatch = rows.find(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento||(nn(String(v))===nn(p.nome)&&String(v).length>3)));
+        const valorDaPlanilha = rowMatch && colValor ? extrairValor(rowMatch[colValor]) : null;
+        return {...p, status:'PAGO', valorPago: valorDaPlanilha !== null ? valorDaPlanilha : p.valor};
+      });
+      
+      if(colValor) toast(`Coluna de valor encontrada: "${colValor}"`, 'info');
       render();
       if(encontrados.length) toast(`${encontrados.length} pacientes encontrados — confirme abaixo`,'success');
       else toast('Nenhum paciente encontrado na planilha','error');
@@ -1928,7 +2067,19 @@ async function handleRelatorio(input){
     if(!response.ok) throw new Error('Erro '+response.status);
     const data = await response.json();
     const results = (data.analysis||data.data||data).results||[];
-    const encontrados = pends.filter(p=>results.find(r=>r.status==='PAGO'&&(r.numero_atendimento===p.atendimento||r.nome_paciente===p.nome)));
+    let pendsFiltPdf = pends;
+    if(state.concilPeriodoInicio || state.concilPeriodoFim){
+      pendsFiltPdf = pends.filter(p=>{
+        if(!p.data) return true;
+        const parts = p.data.split('-');
+        const dataP = parts.length===3 ? p.data : null;
+        if(!dataP) return true;
+        if(state.concilPeriodoInicio && dataP < state.concilPeriodoInicio) return false;
+        if(state.concilPeriodoFim && dataP > state.concilPeriodoFim) return false;
+        return true;
+      });
+    }
+    const encontrados = pendsFiltPdf.filter(p=>results.find(r=>r.status==='PAGO'&&(r.numero_atendimento===p.atendimento||r.nome_paciente===p.nome)));
     state.concilPreview = encontrados.map(p=>({...p,status:'PAGO',valorPago:p.valor}));
     render();
     if(encontrados.length) toast(`${encontrados.length} pacientes encontrados — confirme abaixo`,'success');
@@ -1950,12 +2101,38 @@ function markPaidManual(id){
 }
 function confirmConcil(){
   if(!state.concilPreview) return;
+  // Salva snapshot dos pacientes afetados antes de alterar (para reversão)
+  const ids = state.concilPreview.map(p=>p.id);
+  state.ultimaConcil = state.patients
+    .filter(p=>ids.includes(p.id))
+    .map(p=>({...p})); // cópia profunda
   state.concilPreview.forEach(p=>{
-    state.patients=state.patients.map(x=>x.id===p.id?{...x,status:'PAGO',valorPago:x.valor}:x);
+    state.patients=state.patients.map(x=>x.id===p.id?{...x,status:'PAGO',valorPago:p.valorPago||x.valor}:x);
   });
   state.concilPreview=null;
+  saveState();
   render();
-  toast('✓ Conciliação efetivada!','success');
+  toast(`✓ Conciliação efetivada! Para desfazer, use "Reverter última conciliação".`,'success');
+}
+
+function reverterPaciente(id){
+  state.patients = state.patients.map(p=>p.id===id?{...p,status:'PENDENTE',valorPago:0}:p);
+  saveState();render();
+  toast('↩ Paciente revertido para pendente','info');
+}
+
+function reverterConcil(){
+  if(!state.ultimaConcil) return;
+  const ids = state.ultimaConcil.map(p=>p.id);
+  state.patients = state.patients.map(p=>{
+    const original = state.ultimaConcil.find(u=>u.id===p.id);
+    return original ? {...original} : p;
+  });
+  const n = state.ultimaConcil.length;
+  state.ultimaConcil = null;
+  saveState();
+  render();
+  toast(`↩ ${n} pacientes revertidos para o estado anterior à conciliação`,'info');
 }
 function fakeConciliacao(){
   toast('Processando relatório com IA...','info');
@@ -2214,7 +2391,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v37</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v42</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
