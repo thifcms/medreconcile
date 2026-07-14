@@ -886,12 +886,26 @@ function renderUnidades(){
 function abrirConfigHosp(id){
   const h = state.hospitals.find(h=>h.id===id);
   if(!h) return;
+
+  // Calcula médias por convênio para este hospital
+  const pagosHosp = state.patients.filter(p=>p.hospId===id && p.status==='PAGO' && (p.valorPago||p.valor)>0);
+  const mediasPorConvenio = {};
+  pagosHosp.forEach(p=>{
+    const conv = (p.convenio||'Não informado').trim();
+    if(!mediasPorConvenio[conv]) mediasPorConvenio[conv] = {total:0, count:0};
+    mediasPorConvenio[conv].total += (p.valorPago||p.valor||0);
+    mediasPorConvenio[conv].count += 1;
+  });
+  const convenios = Object.entries(mediasPorConvenio)
+    .map(([conv,{total,count}])=>({conv, media:total/count, count}))
+    .sort((a,b)=>b.media-a.media);
+
   const overlay = document.createElement('div');
   overlay.id = 'config-hosp-overlay';
-  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;';
+  overlay.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.55);z-index:9999;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;';
   overlay.onclick = (e)=>{ if(e.target===overlay) fecharConfigHosp(); };
   overlay.innerHTML = `
-    <div class="glass" style="width:100%;max-width:360px;padding:24px;border-radius:24px;">
+    <div class="glass" style="width:100%;max-width:380px;padding:24px;border-radius:24px;max-height:90vh;overflow-y:auto;">
       <div style="font-size:16px;font-weight:900;color:var(--text);margin-bottom:4px;">⚙️ ${h.name}</div>
       <div style="font-size:12px;color:var(--text3);margin-bottom:20px;">Configurações da unidade</div>
 
@@ -904,8 +918,33 @@ function abrirConfigHosp(id){
             class="input" style="flex:1;font-size:16px;letter-spacing:1px;">
           <div style="font-size:12px;color:var(--text3);font-weight:700;white-space:nowrap;">%</div>
         </div>
-        <div style="font-size:11px;color:var(--text3);margin-top:8px;">Aplicado no balão "Total Recebido" desta unidade (IR, secretaria, etc).</div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;">Aplicado no balão "Total Recebido" desta unidade.</div>
       </div>
+
+      ${convenios.length>0?`
+      <div style="margin-bottom:20px;">
+        <div style="font-size:11px;font-weight:800;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">📊 Média histórica por convênio</div>
+        <div style="background:rgba(255,255,255,0.5);border-radius:14px;overflow:hidden;">
+          ${convenios.map((c,i)=>`
+          <div style="padding:12px 14px;${i<convenios.length-1?'border-bottom:1px solid rgba(0,0,0,0.05);':''}">
+            <div style="display:flex;justify-content:space-between;align-items:center;">
+              <div>
+                <div style="font-size:13px;font-weight:800;color:var(--text);">${c.conv}</div>
+                <div style="font-size:11px;color:var(--text3);margin-top:2px;">${c.count} pagamento${c.count>1?'s':''} registrado${c.count>1?'s':''}</div>
+              </div>
+              <div style="text-align:right;">
+                <div style="font-size:14px;font-weight:900;color:var(--green2);">${fmtBRL(c.media)}</div>
+                <div style="font-size:10px;color:var(--text3);font-weight:700;">média/paciente</div>
+              </div>
+            </div>
+          </div>`).join('')}
+        </div>
+        <div style="font-size:11px;color:var(--text3);margin-top:8px;">Calculado automaticamente com base nos pagamentos já conciliados neste hospital.</div>
+      </div>`:`
+      <div style="background:rgba(255,255,255,0.5);border-radius:14px;padding:16px;margin-bottom:20px;text-align:center;">
+        <div style="font-size:24px;margin-bottom:6px;">📊</div>
+        <div style="font-size:12px;color:var(--text3);font-weight:700;">Nenhum pagamento conciliado ainda.<br>As médias aparecerão após as primeiras conciliações.</div>
+      </div>`}
 
       <div style="display:flex;gap:10px;">
         <button onclick="fecharConfigHosp()" class="btn-g" style="flex:1;padding:13px;">Cancelar</button>
@@ -2391,7 +2430,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v42</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v43</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
