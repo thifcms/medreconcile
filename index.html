@@ -467,6 +467,7 @@ const state = {
   mesFiltro: 'TODOS',
   batchPreview: null,
   photoQueue: [], // fila de fotos aguardando análise
+  photoQueueFailed: [], // fotos que falharam e podem ser retentadas
   showMesPicker: false,
   mesPickerTarget: null, // 'atendimentos' | 'pagos'
   mesPickerTempMes: null,
@@ -851,34 +852,34 @@ function renderUnidades(){
       const pago = pats.filter(p=>p.status==='PAGO').length;
       return `
       <div class="glass anim-up" style="padding:16px 18px;margin-bottom:12px;${isActive?'border-left:3px solid var(--green);background:rgba(46,200,102,0.03);':''}">
-        <div style="display:flex;align-items:center;gap:14px;">
-          <div style="width:46px;height:46px;border-radius:16px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:22px;
+        <div style="display:flex;align-items:flex-start;gap:12px;margin-bottom:12px;">
+          <div style="width:44px;height:44px;border-radius:14px;flex-shrink:0;display:flex;align-items:center;justify-content:center;font-size:20px;
             ${isActive?'background:linear-gradient(135deg,#35d46e,#1a8f45);box-shadow:0 8px 20px rgba(46,200,102,0.38);':'background:linear-gradient(145deg,rgba(255,255,255,0.80),rgba(255,255,255,0.55));box-shadow:var(--shadow);'}">🏥</div>
           <div style="flex:1;min-width:0;">
-            <div style="font-weight:900;font-size:15px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${h.name}</div>
-            <div style="display:flex;align-items:center;gap:8px;margin-top:3px;">
-              <div style="font-size:12px;font-weight:700;color:${isActive?'var(--green2)':'var(--text3)'};">${isActive?'● Ativa':'Inativa'}</div>
-              ${pats.length>0?`<div style="font-size:11px;color:var(--text3);font-weight:600;">${pend} pendentes · ${pago} pagos</div>`:''}
+            <div style="font-weight:900;font-size:15px;color:var(--text);line-height:1.3;word-break:break-word;">${h.name}</div>
+            <div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-top:4px;">
+              <div style="font-size:11px;font-weight:800;color:${isActive?'var(--green2)':'var(--text3)'};">${isActive?'● Ativa':'○ Inativa'}</div>
+              ${pats.length>0?`<div style="font-size:11px;color:var(--text3);font-weight:600;">· ${pend} pendentes · ${pago} pagos</div>`:''}
+              ${h.descontoPercent>0?`<div style="font-size:11px;color:#5b8def;font-weight:700;">· ${h.descontoPercent}% desconto</div>`:''}
             </div>
-            ${h.descontoPercent>0?`<div style="font-size:11px;color:#5b8def;font-weight:700;margin-top:3px;">Desconto: ${h.descontoPercent}%</div>`:''}
           </div>
-          <div style="display:flex;gap:8px;flex-shrink:0;">
-            <button onclick="abrirConfigHosp('${h.id}')" style="padding:8px 10px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:rgba(255,255,255,0.7);font-size:14px;cursor:pointer;">⚙️</button>
-            ${isActive
-              ? `<div style="padding:7px 12px;border-radius:10px;background:rgba(46,200,102,0.10);border:1px solid rgba(46,200,102,0.20);">
-                  <div style="font-size:11px;font-weight:800;color:var(--green2);">✓ Selecionada</div>
-                </div>`
-              : `<button class="btn-g" style="padding:8px 14px;font-size:12px;" onclick="activateHosp('${h.id}')">
-                  ${state.activeHosp ? 'Trocar' : 'Ativar'}
-                </button>`
-            }
-            ${confirmDeleteHospId===h.id ? `
-              <button onclick="confirmDeleteHospId=null;render();" style="padding:7px 10px;border-radius:10px;border:none;font-size:12px;font-weight:800;cursor:pointer;background:rgba(255,255,255,0.70);color:var(--lead);font-family:inherit;">Cancelar</button>
-              <button onclick="removeHosp('${h.id}')" style="padding:7px 12px;border-radius:10px;border:none;font-size:12px;font-weight:800;cursor:pointer;background:var(--red);color:#fff;font-family:inherit;">Excluir</button>
-            ` : `
-              <button class="btn-d" style="padding:8px 12px;" onclick="confirmDeleteHospId='${h.id}';render()">🗑</button>
-            `}
-          </div>
+        </div>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;">
+          <button onclick="abrirConfigHosp('${h.id}')" style="padding:8px 14px;border-radius:10px;border:1px solid rgba(0,0,0,0.08);background:rgba(255,255,255,0.7);font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">⚙️ Config</button>
+          ${isActive
+            ? `<div style="flex:1;padding:8px 14px;border-radius:10px;background:rgba(46,200,102,0.10);border:1px solid rgba(46,200,102,0.20);text-align:center;">
+                <div style="font-size:12px;font-weight:800;color:var(--green2);">✓ Selecionada</div>
+              </div>`
+            : `<button class="btn-g" style="flex:1;padding:8px 14px;font-size:12px;" onclick="activateHosp('${h.id}')">
+                ${state.activeHosp ? '⇄ Trocar para esta' : '✓ Ativar'}
+              </button>`
+          }
+          ${confirmDeleteHospId===h.id ? `
+            <button onclick="confirmDeleteHospId=null;render();" style="padding:8px 12px;border-radius:10px;border:none;font-size:12px;font-weight:800;cursor:pointer;background:rgba(255,255,255,0.70);color:var(--lead);font-family:inherit;">Cancelar</button>
+            <button onclick="removeHosp('${h.id}')" style="padding:8px 12px;border-radius:10px;border:none;font-size:12px;font-weight:800;cursor:pointer;background:var(--red);color:#fff;font-family:inherit;">Excluir</button>
+          ` : `
+            <button class="btn-d" style="padding:8px 12px;" onclick="confirmDeleteHospId='${h.id}';render()">🗑</button>
+          `}
         </div>
       </div>`;
     }).join('')}`;
@@ -1033,6 +1034,18 @@ function renderAtendimentos(){
           <button onclick="(async()=>{const q=[...state.photoQueue];state.photoQueue=[];await handleCameraFiles(q);})();" style="padding:8px 14px;border-radius:10px;background:linear-gradient(135deg,#5b8def,#3a6cd4);border:none;color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">🔍 Analisar ${state.photoQueue.length} foto${state.photoQueue.length>1?'s':''}</button>
         </div>
       </div>
+    </div>`:''}
+    ${(state.photoQueueFailed||[]).length>0?`
+    <div class="glass anim-up" style="padding:16px 20px;margin-bottom:16px;border-left:3px solid #ef4444;">
+      <div style="font-size:13px;font-weight:900;color:#ef4444;margin-bottom:8px;">❌ ${state.photoQueueFailed.length} foto${state.photoQueueFailed.length>1?'s':''} com erro</div>
+      ${state.photoQueueFailed.map((f,i)=>`
+        <div style="display:flex;align-items:center;justify-content:space-between;padding:8px 0;${i<state.photoQueueFailed.length-1?'border-bottom:1px solid rgba(0,0,0,0.06);':''}">
+          <div style="font-size:12px;color:var(--text2);font-weight:700;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:180px;">${f.name||'foto.jpg'}</div>
+          <div style="display:flex;gap:6px;">
+            <button onclick="retentarFoto(${i})" style="padding:6px 12px;border-radius:8px;border:none;background:linear-gradient(135deg,#5b8def,#3a6cd4);color:#fff;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;">↺ Retentar</button>
+            <button onclick="state.photoQueueFailed.splice(${i},1);render();" style="padding:6px 10px;border-radius:8px;border:1px solid rgba(239,68,68,0.3);background:rgba(239,68,68,0.08);color:#ef4444;font-size:11px;font-weight:800;cursor:pointer;font-family:inherit;">✕</button>
+          </div>
+        </div>`).join('')}
     </div>`:''}
 
     ${state.batchPreview?`
@@ -1541,20 +1554,37 @@ async function prepareFileForUpload(file){
     return { base64, mimeType: 'application/pdf' };
   }
   if(isHeicFile(file)){
-    if(file.size > 10*1024*1024) throw new Error('Imagem HEIC muito grande (máx. 10MB). Reduza a qualidade da foto na câmera.');
-    const base64 = await new Promise((res,rej)=>{
-      const r = new FileReader();
-      r.onload = ()=>res(r.result.split(',')[1]);
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
-    return { base64, mimeType: file.type || 'image/heic' };
+    // HEIC: tenta converter via canvas (funciona na maioria dos browsers modernos)
+    // Se falhar, envia direto mas com limite de tamanho mais restrito
+    try {
+      return await resizeImageToBase64(file, 1200, 0.85);
+    } catch(e){
+      console.warn('⚠️ Canvas não suportou HEIC, enviando direto:', e.message);
+      if(file.size > 3*1024*1024) throw new Error('Imagem muito grande (máx. 3MB). Nas configurações da câmera, mude o formato para JPEG/Alta Eficiência compatível.');
+      const base64 = await new Promise((res,rej)=>{
+        const r = new FileReader();
+        r.onload = ()=>res(r.result.split(',')[1]);
+        r.onerror = rej;
+        r.readAsDataURL(file);
+      });
+      return { base64, mimeType: file.type || 'image/heic' };
+    }
   }
   // Imagens comuns (jpg, png, etc): comprime para economizar dados e cota da IA
   try {
-    return await resizeImageToBase64(file, 1200, 0.85);
+    const result = await resizeImageToBase64(file, 1200, 0.85);
+    const sizeKB = Math.round(result.base64.length * 0.75 / 1024);
+    console.log(`📦 Imagem comprimida: ${sizeKB}KB (original: ${Math.round(file.size/1024)}KB)`);
+    if(sizeKB > 2048){
+      // Se ainda ficou grande após compressão, tenta com qualidade menor
+      console.warn(`⚠️ Imagem ainda grande (${sizeKB}KB), recomprimindo com qualidade menor...`);
+      return await resizeImageToBase64(file, 1000, 0.70);
+    }
+    return result;
   } catch(e){
-    // Fallback: se a compressão falhar por algum motivo, envia o arquivo original
+    // Fallback: se a compressão falhar, bloqueia arquivos muito grandes
+    console.error('❌ Compressão falhou:', e.message);
+    if(file.size > 2*1024*1024) throw new Error(`Imagem muito grande (${Math.round(file.size/1024/1024)}MB). Tire uma foto mais próxima ou reduza a resolução da câmera nas configurações.`);
     const base64 = await new Promise((res,rej)=>{
       const r = new FileReader();
       r.onload = ()=>res(r.result.split(',')[1]);
@@ -1582,6 +1612,14 @@ function friendlyAiError(status, rawMessage){
     return 'Falha de conexão. Verifique sua internet e tente novamente.';
   }
   return 'Erro ao processar imagem. Tente novamente.';
+}
+
+async function retentarFoto(idx){
+  const file = (state.photoQueueFailed||[])[idx];
+  if(!file) return;
+  state.photoQueueFailed.splice(idx,1);
+  render();
+  await handleCameraFiles([file]);
 }
 
 async function handleCameraFiles(files){
@@ -1679,17 +1717,16 @@ async function handleCamera(input){
       // Mostra progresso
       const msgEl0 = document.getElementById('scan-msg');
       if(msgEl0) msgEl0.textContent = files.length>1 ? `Processando foto ${fi+1} de ${files.length}...` : 'Enviando para a IA...';
-      // cold start do servidor gratuito (Render) sem dar feedback ao usuário.
+
       const extractController = new AbortController();
       const extractTimeoutId = setTimeout(()=>{
         extractController.abort();
-        console.warn('⚠️ Chamada para Audit AI cancelada por estourar o limite de 60s.');
+        console.warn('⚠️ Timeout de 90s atingido.');
       }, 90000);
 
-      const startTimeNetwork = performance.now();
-      let response;
+      let data;
       try {
-        response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
+        const response = await fetch(`${AI_URL}/public/extract`, {
           method: 'POST',
           headers: { 'Accept':'application/json', 'Content-Type': 'application/json', 'x-api-key': AI_KEY },
           signal: extractController.signal,
@@ -1722,69 +1759,48 @@ FOLHA CIRÚRGICA: extraia dados do cabeçalho. NUNCA confunda cirurgião ("Cirur
 
 DADOS ILEGÍVEIS: se completamente ilegível por reflexo ou rasura severa, deixe o campo vazio. Para dados parcialmente visíveis, tente reconstruir.
 
-Retorne todos os pacientes encontrados no array "pacientes".`,
-            schema: {
-              type: 'object',
-              properties: {
-                pacientes: {
-                  type: 'array',
-                  items: {
-                    type: 'object',
-                    properties: {
-                      nome_paciente: {type:'string'},
-                      numero_atendimento: {type:'string'},
-                      convenio: {type:'string'},
-                      data_atendimento: {type:'string'}
-                    }
-                  }
-                },
-                total_encontrados: {type:'number'}
-              }
-            }
+Retorne todos os pacientes encontrados no array "pacientes".`
           })
         });
         clearTimeout(extractTimeoutId);
-        const networkDuration = ((performance.now()-startTimeNetwork)/1000).toFixed(2);
-        console.log(`⏱️ Tempo de rede [Audit AI]: ${networkDuration}s`);
+
+        if(!response.ok){
+          let rawMsg = '';
+          try { const errBody = await response.json(); rawMsg = errBody.error || errBody.message || ''; } catch(_){}
+          throw new Error(friendlyAiError(response.status, rawMsg));
+        }
+
+        data = await response.json();
+        console.log('[MedReconcile] Resposta Audit AI:', JSON.stringify(data).substring(0, 500));
+
       } catch(fetchErr){
         clearTimeout(extractTimeoutId);
-        const networkDuration = ((performance.now()-startTimeNetwork)/1000).toFixed(2);
-        console.log(`⏱️ Tempo de rede [Audit AI - Falha/Timeout]: ${networkDuration}s`);
-        if(fetchErr.name === 'AbortError'){
-          throw new Error('O servidor de IA demorou demais para responder (mais de 90s). Tente novamente em alguns segundos.');
+        if(fetchErr.name==='AbortError'){
+          throw new Error('O servidor de IA demorou demais (90s). Toque em "↺ Retentar".');
         }
         throw new Error('Falha de conexão com o servidor de IA. Verifique sua internet e tente novamente.');
       }
 
-      if(!response.ok){
-        let rawMsg = '';
-        try { const errBody = await response.json(); rawMsg = errBody.error || errBody.message || ''; } catch(_){}
-        throw new Error(friendlyAiError(response.status, rawMsg));
-      }
-
-      const data = await response.json();
       const a = data.analysis || data.data || data;
       const imageHash = data.image_hash || a.image_hash || '';
       if(data.quotaExhausted === true) quotaExhaustedFlag = true;
 
-      // Suporta tanto lista quanto registro único
-      // Formato do Audit AI: { success, data: { etiquetas: [...] } }
       let pacientes = [];
-      const dataNode = a.data || a; // suporta resposta com ou sem nó 'data'
+      const dataNode = a.data || a;
 
       if(dataNode.etiquetas && Array.isArray(dataNode.etiquetas) && dataNode.etiquetas.length > 0){
-        pacientes = dataNode.etiquetas; // formato principal do Audit AI
+        pacientes = dataNode.etiquetas;
       } else if(dataNode.pacientes && Array.isArray(dataNode.pacientes)){
         pacientes = dataNode.pacientes;
       } else if(Array.isArray(dataNode)){
         pacientes = dataNode;
       } else if(dataNode.nome_paciente || dataNode.nome){
-        pacientes = [dataNode]; // único paciente
+        pacientes = [dataNode];
       } else {
-        // Tenta encontrar qualquer array na resposta
         const arr = Object.values(dataNode).find(v => Array.isArray(v) && v.length > 0);
         if(arr) pacientes = arr;
       }
+      console.log('[MedReconcile] Pacientes encontrados:', pacientes.length);
 
       const mapped = pacientes.map(p=>{
         const conv = p.convenio || p.insurance || p.plano || p.plano_saude || p.nome_convenio || p.operadora || p.seguradora || p.plano_de_saude ||
@@ -1826,16 +1842,21 @@ Retorne todos os pacientes encontrados no array "pacientes".`,
     const scanToastErr = document.getElementById('scan-toast');
     if(scanToastErr){ clearInterval(scanToastErr._interval); scanToastErr.remove(); }
     console.error('[MedReconcile] Erro na extração:', e);
-    let friendly = 'Erro ao processar imagem. Tente novamente.';
+    // Salva arquivos que falharam para poder retentar sem tirar nova foto
+    if(files && files.length > 0){
+      state.photoQueueFailed = [...(state.photoQueueFailed||[]), ...Array.from(files)];
+    }
+    let friendly = 'Erro ao processar imagem.';
     if(e && e.message){
       if(e.name==='AbortError'||e.message.toLowerCase().includes('abort')){
-        friendly = 'O servidor de IA demorou demais (60s). Tente novamente.';
+        friendly = 'Servidor demorou demais (90s). Toque em "↺ Retentar" para tentar novamente sem tirar nova foto.';
       } else if(e.message.includes('grande')||e.message.includes('Limite')||e.message.includes('Chave')||e.message.includes('indisponível')||e.message.includes('conexão')||e.message.includes('preparar')||e.message.includes('carregar')){
         friendly = e.message;
       } else {
         friendly = `Erro: ${e.message}`;
       }
     }
+    render();
     toast(friendly,'error');
   }
 }
@@ -2430,7 +2451,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v43</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v50</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
