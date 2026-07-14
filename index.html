@@ -2112,7 +2112,7 @@ async function handleRelatorio(input){
       r.onerror = rej;
       r.readAsDataURL(file);
     });
-    const csv = pends.map(p=>`${p.nome},${p.atendimento}`).join('\n');
+    const csv = pends.map(p=>`${p.nome} | Atendimento: ${p.atendimento}`).join('\n');
     const response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
       method: 'POST',
       headers: {'Accept':'application/json','Content-Type':'application/json','x-api-key':AI_KEY},
@@ -2120,13 +2120,32 @@ async function handleRelatorio(input){
         fileBase64: base64,
         filename: file.name || 'relatorio.pdf',
         mimeType: file.type||'application/pdf',
-        prompt: `Compare estes pacientes com o relatório hospitalar e diga quais foram PAGOS:\n${csv}\nRetorne JSON: {results:[{nome_paciente,numero_atendimento,status}]}`,
-        schema:{type:'object',properties:{results:{type:'array',items:{type:'object',properties:{nome_paciente:{type:'string'},numero_atendimento:{type:'string'},status:{type:'string'}}}}}}
+        prompt: `Este é um relatório de repasse médico hospitalar (formato SOULMV ou similar). A tabela tem colunas como: Conta | Atendimento | Paciente | Atividade | Convênio | Data | Valor.
+
+IMPORTANTE: extraia APENAS os registros onde a coluna "Atividade" seja "CLINICO" (ignore CIRURGICO, AMBULATORIAL ou outras atividades).
+
+Para cada paciente com atividade CLINICO encontrado no relatório, extraia:
+- nome_paciente: nome completo do paciente
+- numero_atendimento: número do atendimento (coluna "Atendimento")
+- convenio: nome do convênio
+- data_atendimento: data no formato DD/MM/AA ou DD/MM/AAAA
+- valor: valor do repasse/pagamento daquela linha, se disponível (coluna Vl.R ou similar), como número decimal sem "R$"
+
+Aqui está a lista de pacientes já cadastrados no meu sistema que preciso verificar se aparecem no relatório (compare por nome ou número de atendimento):
+${csv}
+
+Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatório, mesmo que não estejam na minha lista acima — vou fazer o cruzamento depois. Retorne no formato JSON: {resultados: [{nome_paciente, numero_atendimento, convenio, data_atendimento, valor}]}`,
+        schema:{type:'object',properties:{resultados:{type:'array',items:{type:'object',properties:{nome_paciente:{type:'string'},numero_atendimento:{type:'string'},convenio:{type:'string'},data_atendimento:{type:'string'},valor:{type:'number'}}}}}}
       })
     });
     if(!response.ok) throw new Error('Erro '+response.status);
     const data = await response.json();
-    const results = (data.analysis||data.data||data).results||[];
+    const a = data.analysis || data.data || data;
+    const resultados = a.resultados || a.results || [];
+    console.log('[MedReconcile] Relatório PDF - registros CLINICO encontrados:', resultados.length, resultados);
+
+    const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+
     let pendsFiltPdf = pends;
     if(state.concilPeriodoInicio || state.concilPeriodoFim){
       pendsFiltPdf = pends.filter(p=>{
@@ -2139,11 +2158,24 @@ async function handleRelatorio(input){
         return true;
       });
     }
-    const encontrados = pendsFiltPdf.filter(p=>results.find(r=>r.status==='PAGO'&&(r.numero_atendimento===p.atendimento||r.nome_paciente===p.nome)));
-    state.concilPreview = encontrados.map(p=>({...p,status:'PAGO',valorPago:p.valor}));
+
+    // Cruza pacientes pendentes com os resultados do relatório (nome ou atendimento)
+    const encontrados = pendsFiltPdf.filter(p=>
+      resultados.find(r=>
+        (r.numero_atendimento && p.atendimento && String(r.numero_atendimento)===String(p.atendimento)) ||
+        (r.nome_paciente && p.nome && nn(r.nome_paciente)===nn(p.nome))
+      )
+    );
+    state.concilPreview = encontrados.map(p=>{
+      const match = resultados.find(r=>
+        (r.numero_atendimento && String(r.numero_atendimento)===String(p.atendimento)) ||
+        (r.nome_paciente && nn(r.nome_paciente)===nn(p.nome))
+      );
+      return {...p, status:'PAGO', valorPago: (match && match.valor) ? match.valor : p.valor};
+    });
     render();
-    if(encontrados.length) toast(`${encontrados.length} pacientes encontrados — confirme abaixo`,'success');
-    else toast('Nenhum paciente identificado no relatório','error');
+    if(encontrados.length) toast(`${encontrados.length} pacientes CLINICO encontrados — confirme abaixo`,'success');
+    else toast(`Relatório lido (${resultados.length} registros CLINICO), mas nenhum bateu com seus pacientes pendentes. Verifique nomes/atendimentos.`,'error');
   } catch(e) {
     toast('Erro ao processar relatório. Tente Excel ou CSV.','error');
     console.error(e);
@@ -2451,7 +2483,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v50</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v51</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
