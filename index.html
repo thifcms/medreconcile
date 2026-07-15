@@ -2193,6 +2193,7 @@ async function handleRelatorio(input){
       r.readAsDataURL(file);
     });
     const csv = pends.map(p=>`${p.nome} | Atendimento: ${p.atendimento}`).join('\n');
+    const nomeMedico = (state.profile?.name||'').replace(/^(dr\.?|dra\.?)\s+/i,'').trim();
     const response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
       method: 'POST',
       headers: {'Accept':'application/json','Content-Type':'application/json','x-api-key':AI_KEY},
@@ -2200,7 +2201,9 @@ async function handleRelatorio(input){
         fileBase64: base64,
         filename: file.name || 'relatorio.pdf',
         mimeType: file.type||'application/pdf',
-        prompt: `Este é um relatório de repasse médico hospitalar (formato SOULMV ou similar). A tabela tem colunas como: Conta | Atendimento | Paciente | Atividade | Convênio | Data | Valor.
+        prompt: `Este é um relatório de repasse médico hospitalar (formato SOULMV, ORTTRAM ou similar). A tabela tem colunas como: Conta | Atendimento | Paciente | Atividade | Convênio | Data | Valor.
+
+${nomeMedico ? `Nome do médico cadastrado: ${nomeMedico}` : ''}
 
 IMPORTANTE: extraia APENAS os registros onde a coluna "Atividade" seja "CLINICO" (ignore CIRURGICO, AMBULATORIAL ou outras atividades).
 
@@ -2574,7 +2577,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-15-v53</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-15-v54</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
