@@ -1880,9 +1880,34 @@ function setBatchDate(val){
 
 function confirmarLote(){
   if(!state.batchPreview)return;
-  const total = state.batchPreview.length;
   const dataLote = state.batchDate || today();
-  state.batchPreview.forEach(p=>state.patients.push({
+  const nn = s => String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+
+  // Evita duplicar pacientes já salvos (mesmo nome + mesma data de atendimento) —
+  // acontece quando a mesma tela/etiqueta é fotografada mais de uma vez para
+  // capturar pacientes que rolaram para fora da primeira foto.
+  const jaExistentes = new Set(
+    state.patients
+      .filter(p=>p.hospId===state.activeHosp && p.data===dataLote)
+      .map(p=>nn(p.nome))
+  );
+
+  const novos = [];
+  const duplicados = [];
+  const vistosNoLote = new Set();
+
+  state.batchPreview.forEach(p=>{
+    const chave = nn(p.nome);
+    if(!chave){ novos.push(p); return; } // sem nome, deixa passar (não dá pra comparar)
+    if(jaExistentes.has(chave) || vistosNoLote.has(chave)){
+      duplicados.push(p.nome);
+    } else {
+      vistosNoLote.add(chave);
+      novos.push(p);
+    }
+  });
+
+  novos.forEach(p=>state.patients.push({
     id:uid(),
     hospId:state.activeHosp,
     ...p,
@@ -1895,8 +1920,11 @@ function confirmarLote(){
   state.batchDate=null;
   popNavLayer();
   render();
-  const retornos = state.patients.filter(p=>p.status==='RETORNO').length;
-  toast(`✓ ${total} pacientes salvos!${retornos>0?` (${retornos} marcado${retornos>1?'s':''} como retorno)`:''}`,'success');
+  const retornos = novos.filter(p=>p.isRetorno===true).length;
+  let msg = `✓ ${novos.length} paciente${novos.length!==1?'s':''} salvo${novos.length!==1?'s':''}!`;
+  if(retornos>0) msg += ` (${retornos} marcado${retornos>1?'s':''} como retorno)`;
+  if(duplicados.length>0) msg += ` — ${duplicados.length} duplicata${duplicados.length>1?'s':''} ignorada${duplicados.length>1?'s':''}`;
+  toast(msg, duplicados.length>0 && novos.length===0 ? 'info' : 'success');
 }
 
 // ── AUDITAGEM ─────────────────────────────────────────────────────────────────
@@ -2036,6 +2064,31 @@ function renderAuditagem(){
       </div>`;
     })()}`;
 }
+// Normaliza qualquer formato de data (DD/MM/AA, DD/MM/AAAA, YYYY-MM-DD) para YYYY-MM-DD.
+// Retorna null se não conseguir interpretar — nesse caso o matching cai para o fallback por nome.
+function normalizarDataParaComparacao(dataStr){
+  if(!dataStr) return null;
+  const s = String(dataStr).trim();
+  // Formato já ISO: YYYY-MM-DD
+  let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(m) return `${m[1]}-${m[2]}-${m[3]}`;
+  // Formato BR: DD/MM/AAAA ou DD/MM/AA
+  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  if(m){
+    let [,dd,mm,yy] = m;
+    dd = dd.padStart(2,'0'); mm = mm.padStart(2,'0');
+    if(yy.length===2) yy = (parseInt(yy,10) > 50 ? '19' : '20') + yy; // heurística simples para 2 dígitos
+    return `${yy}-${mm}-${dd}`;
+  }
+  return null;
+}
+function datasBatem(dataLocal, dataRelatorio){
+  const a = normalizarDataParaComparacao(dataLocal);
+  const b = normalizarDataParaComparacao(dataRelatorio);
+  if(!a || !b) return null; // não deu pra comparar — indefinido, não é match nem descarte
+  return a === b;
+}
+
 async function handleRelatorio(input){
   const file = input.files[0];
   if(!file) return;
@@ -2062,6 +2115,14 @@ async function handleRelatorio(input){
         return keys.find(k => colsValor.includes(nn(k)));
       };
       const colValor = rows.length ? detectarColValor(rows[0]) : null;
+
+      // Detecta coluna de data na planilha (para desambiguar pacientes com nome repetido)
+      const colsData = ['data','data atendimento','data do atendimento','date'];
+      const detectarColData = (row) => {
+        const keys = Object.keys(row);
+        return keys.find(k => colsData.includes(nn(k)));
+      };
+      const colData = rows.length ? detectarColData(rows[0]) : null;
       
       // Função para extrair valor numérico da célula
       const extrairValor = (v) => {
@@ -2087,10 +2148,29 @@ async function handleRelatorio(input){
           toast(`Filtro de período: ${pendsFiltrados.length} de ${pends.length} pacientes no período`,'info');
       }
 
-      const encontrados = pendsFiltrados.filter(p=>rows.some(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento||(nn(v)===nn(p.nome)&&v.length>3))));
+      const encontrarMatchExcel = (p) => {
+        // 1) Nº de atendimento é chave única
+        const porAtendimento = rows.find(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento && p.atendimento));
+        if(porAtendimento) return porAtendimento;
+        // 2) Nome — pode haver múltiplas linhas com o mesmo nome (datas diferentes)
+        const candidatosPorNome = rows.filter(r=>Object.values(r).map(v=>String(v||'')).some(v=>nn(v)===nn(p.nome)&&v.length>3));
+        if(candidatosPorNome.length===0) return null;
+        if(candidatosPorNome.length===1) return candidatosPorNome[0];
+        if(colData){
+          const porNomeEData = candidatosPorNome.find(r=>datasBatem(p.data, r[colData])===true);
+          if(porNomeEData) return porNomeEData;
+          console.warn(`[MedReconcile] "${p.nome}" aparece ${candidatosPorNome.length}x na planilha e nenhuma data bateu com o cadastro local (${p.data}). Pulando para evitar valor errado — confira manualmente.`);
+          return null;
+        }
+        // Sem coluna de data detectada na planilha: mantém comportamento antigo (pega a primeira)
+        console.warn(`[MedReconcile] "${p.nome}" aparece ${candidatosPorNome.length}x na planilha e não há coluna de data para desambiguar — usando a primeira ocorrência.`);
+        return candidatosPorNome[0];
+      };
+
+      const encontrados = pendsFiltrados.filter(p=>encontrarMatchExcel(p));
       state.concilPreview = encontrados.map(p=>{
         // Tenta encontrar o valor pago na linha correspondente da planilha
-        const rowMatch = rows.find(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento||(nn(String(v))===nn(p.nome)&&String(v).length>3)));
+        const rowMatch = encontrarMatchExcel(p);
         const valorDaPlanilha = rowMatch && colValor ? extrairValor(rowMatch[colValor]) : null;
         return {...p, status:'PAGO', valorPago: valorDaPlanilha !== null ? valorDaPlanilha : p.valor};
       });
@@ -2159,18 +2239,29 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
       });
     }
 
-    // Cruza pacientes pendentes com os resultados do relatório (nome ou atendimento)
-    const encontrados = pendsFiltPdf.filter(p=>
-      resultados.find(r=>
-        (r.numero_atendimento && p.atendimento && String(r.numero_atendimento)===String(p.atendimento)) ||
-        (r.nome_paciente && p.nome && nn(r.nome_paciente)===nn(p.nome))
-      )
-    );
+    // Cruza pacientes pendentes com os resultados do relatório.
+    // Prioridade: 1) nº de atendimento (é único, não precisa de data). 
+    // 2) nome + data batendo (desambigua quando o mesmo nome aparece 2x no relatório).
+    // 3) só nome, como último recurso (mantém comportamento antigo se não der pra comparar datas).
+    function encontrarMatch(p){
+      // 1) Atendimento é chave única — se bater, não precisa checar mais nada
+      const porAtendimento = resultados.find(r=>r.numero_atendimento && p.atendimento && String(r.numero_atendimento)===String(p.atendimento));
+      if(porAtendimento) return porAtendimento;
+      // 2) Nome batendo — pode haver múltiplas ocorrências do mesmo nome no relatório (datas diferentes)
+      const candidatosPorNome = resultados.filter(r=>r.nome_paciente && p.nome && nn(r.nome_paciente)===nn(p.nome));
+      if(candidatosPorNome.length===0) return null;
+      if(candidatosPorNome.length===1) return candidatosPorNome[0];
+      // Múltiplos candidatos com mesmo nome: desambigua pela data do atendimento
+      const porNomeEData = candidatosPorNome.find(r=>datasBatem(p.data, r.data_atendimento)===true);
+      if(porNomeEData) return porNomeEData;
+      // Nenhuma data bateu (ou não deu pra comparar) — não arrisca escolher errado entre múltiplos
+      console.warn(`[MedReconcile] "${p.nome}" aparece ${candidatosPorNome.length}x no relatório e nenhuma data bateu com o cadastro local (${p.data}). Pulando este paciente para evitar valor/data errado — confira manualmente.`);
+      return null;
+    }
+
+    const encontrados = pendsFiltPdf.filter(p=>encontrarMatch(p));
     state.concilPreview = encontrados.map(p=>{
-      const match = resultados.find(r=>
-        (r.numero_atendimento && String(r.numero_atendimento)===String(p.atendimento)) ||
-        (r.nome_paciente && nn(r.nome_paciente)===nn(p.nome))
-      );
+      const match = encontrarMatch(p);
       return {...p, status:'PAGO', valorPago: (match && match.valor) ? match.valor : p.valor};
     });
     render();
@@ -2483,7 +2574,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-06-19-v51</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-15-v53</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
