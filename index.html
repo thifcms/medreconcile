@@ -2369,8 +2369,16 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
     if(encontrados.length) toast(`${encontrados.length} pacientes CLINICO encontrados — confirme abaixo`,'success');
     else toast(`Relatório lido (${resultados.length} registros CLINICO), mas nenhum bateu com seus pacientes pendentes. Verifique nomes/atendimentos.`,'error');
   } catch(e) {
-    toast('Erro ao processar relatório. Tente Excel ou CSV.','error');
-    console.error(e);
+    console.error('[MedReconcile] Erro ao processar relatório PDF:', e);
+    let msg = 'Erro ao processar relatório: ' + (e?.message || 'motivo desconhecido');
+    if(e?.name === 'AbortError' || /timeout/i.test(e?.message||'')) {
+      msg = 'O relatório demorou demais pra ser lido (timeout). Tente um arquivo menor, ou Excel/CSV.';
+    } else if(/Erro 5\d\d/.test(e?.message||'')) {
+      msg = 'O servidor de IA está com problema no momento (erro '+(e.message.match(/\d{3}/)?.[0]||'')+'). Tente novamente em alguns minutos.';
+    } else if(/Erro 4\d\d/.test(e?.message||'')) {
+      msg = 'Falha ao enviar o relatório (erro '+(e.message.match(/\d{3}/)?.[0]||'')+'). Tente Excel/CSV, ou avise o suporte.';
+    }
+    toast(msg,'error');
   }
 }
 function showManualConcil(){
@@ -2675,7 +2683,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-19-v56</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v57</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
