@@ -642,6 +642,33 @@ function toast(msg, type='info'){
   setTimeout(()=>el.remove(), 3200);
 }
 
+// Overlay persistente de processamento — diferente do toast, NÃO some sozinho.
+// Fica visível enquanto uma operação demorada (ex: análise de PDF pela IA) está
+// em andamento, deixando claro pro usuário que o app está trabalhando, não travado.
+function showProcessingOverlay(msg){
+  hideProcessingOverlay();
+  const el = document.createElement('div');
+  el.id = 'processing-overlay';
+  el.style.cssText = 'position:fixed;inset:0;background:rgba(0,0,0,0.45);z-index:700;display:flex;align-items:center;justify-content:center;padding:20px;';
+  el.innerHTML = `
+    <div style="background:#fff;border-radius:20px;padding:28px 24px;max-width:320px;width:100%;text-align:center;box-shadow:0 20px 50px rgba(0,0,0,0.3);">
+      <div style="width:40px;height:40px;margin:0 auto 16px;border:3px solid rgba(46,200,102,0.2);border-top-color:var(--green2);border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      <div style="font-size:14px;font-weight:800;color:var(--text);margin-bottom:4px;">${msg}</div>
+      <div style="font-size:11px;color:var(--text3);font-weight:600;">Isso pode levar até 1 minuto para relatórios grandes.</div>
+    </div>`;
+  document.body.appendChild(el);
+  if(!document.getElementById('spin-keyframes')){
+    const style = document.createElement('style');
+    style.id = 'spin-keyframes';
+    style.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+    document.head.appendChild(style);
+  }
+}
+function hideProcessingOverlay(){
+  const el = document.getElementById('processing-overlay');
+  if(el) el.remove();
+}
+
 // ── NAV ────────────────────────────────────────────────────────────────────────
 const TITLES = {inicio:'MedReconcile',unidades:'Unidades Médicas',atendimentos:'Pacientes',auditagem:'Conciliação',config:'Perfil & Ajustes'};
 const TAB_ORDER = ['inicio','unidades','atendimentos','auditagem','config'];
@@ -2282,7 +2309,7 @@ async function handleRelatorio(input){
   }
   
   // PDF/Foto: envia para Audit AI
-  toast('Enviando para Audit AI...','info');
+  showProcessingOverlay('Analisando relatório com IA...');
   try {
     const base64 = await new Promise((res,rej)=>{
       const r = new FileReader();
@@ -2379,6 +2406,8 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
       msg = 'Falha ao enviar o relatório (erro '+(e.message.match(/\d{3}/)?.[0]||'')+'). Tente Excel/CSV, ou avise o suporte.';
     }
     toast(msg,'error');
+  } finally {
+    hideProcessingOverlay();
   }
 }
 function showManualConcil(){
@@ -2683,7 +2712,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v57</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v58</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
