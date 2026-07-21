@@ -2387,7 +2387,25 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
       return null;
     }
 
-    const encontrados = pendsFiltPdf.filter(p=>encontrarMatch(p));
+    // Valida se a data do ATENDIMENTO NO RELATÓRIO (não a data local cadastrada)
+    // está dentro do período selecionado. Sem isso, um paciente pendente com data
+    // local dentro do período pode "pegar carona" num registro do relatório cuja
+    // data de atendimento real é de outro mês (ex: relatório de fev-mai batendo
+    // com um filtro de junho, só porque o nº de atendimento ou nome coincidiu).
+    function dataDoMatchDentroDoPeriodo(match){
+      if(!state.concilPeriodoInicio && !state.concilPeriodoFim) return true; // sem filtro, aceita tudo
+      if(!match || !match.data_atendimento) return true; // sem data no relatório, não dá pra checar — mantém comportamento antigo
+      const dataMatch = normalizarDataParaComparacao(match.data_atendimento);
+      if(!dataMatch) return true; // não deu pra normalizar, não bloqueia por segurança
+      if(state.concilPeriodoInicio && dataMatch < state.concilPeriodoInicio) return false;
+      if(state.concilPeriodoFim && dataMatch > state.concilPeriodoFim) return false;
+      return true;
+    }
+
+    const encontrados = pendsFiltPdf.filter(p=>{
+      const match = encontrarMatch(p);
+      return match && dataDoMatchDentroDoPeriodo(match);
+    });
     state.concilPreview = encontrados.map(p=>{
       const match = encontrarMatch(p);
       return {...p, status:'PAGO', valorPago: (match && match.valor) ? match.valor : p.valor};
@@ -2712,7 +2730,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v58</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v59</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
