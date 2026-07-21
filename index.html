@@ -1197,7 +1197,7 @@ function renderAtendimentos(){
           const pxData = px.data ? new Date(px.data) : null;
           return pxNome===nomeNorm && pxConv===convNorm && pxData && pxData>=limite && pxData<=hoje;
         });
-        if(isRetorno && !p.hasOwnProperty('isRetorno')) state.batchPreview[i].isRetorno = true;
+        if(isRetorno && !p.hasOwnProperty('isRetorno')) { state.batchPreview[i].isRetorno = true; state.batchPreview[i]._retornoDetectado = true; }
         return `
         <div style="background:rgba(255,255,255,0.60);border-radius:12px;padding:10px 14px;margin-bottom:8px;border:1px solid ${p.isRetorno?'rgba(91,141,239,0.40)':'rgba(255,255,255,0.70)'};">
           <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
@@ -1216,7 +1216,7 @@ function renderAtendimentos(){
           <input class="input" placeholder="Convênio" value="${p.convenio||''}"
             oninput="state.batchPreview[${i}].convenio=this.value"
             style="${p.isRetorno?'margin-bottom:8px;':''}font-size:13px;">
-          ${p.isRetorno?`
+          ${p._retornoDetectado?`
           <div style="display:flex;gap:8px;margin-top:8px;">
             <button onclick="state.batchPreview[${i}].isRetorno=true;render();" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===true?'#3a6cd4':'rgba(91,141,239,0.3)'};background:${p.isRetorno===true?'rgba(91,141,239,0.15)':'transparent'};color:#3a6cd4;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">↩ Confirmar retorno</button>
             <button onclick="state.batchPreview[${i}].isRetorno=false;render();" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===false?'#64748b':'rgba(100,116,139,0.3)'};background:${p.isRetorno===false?'rgba(100,116,139,0.12)':'transparent'};color:#64748b;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Não é retorno</button>
@@ -2730,7 +2730,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v59</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v60</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
