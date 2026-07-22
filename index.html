@@ -261,8 +261,10 @@ select.input{cursor:pointer;appearance:none;}
 .swipe-anim-right{animation:swipeRight 0.22s cubic-bezier(0.4,0,0.2,1) both;}
 @keyframes swipeLeft{from{opacity:0;transform:translateX(40px);}to{opacity:1;transform:translateX(0);}}
 @keyframes swipeRight{from{opacity:0;transform:translateX(-40px);}to{opacity:1;transform:translateX(0);}}
-.tab-fade-in{animation:tabFadeIn 0.18s ease both;}
-@keyframes tabFadeIn{from{opacity:0;transform:translateY(6px);}to{opacity:1;transform:translateY(0);}}
+.tab-fade-out{animation:tabFadeOut 0.13s ease both;}
+@keyframes tabFadeOut{from{opacity:1;transform:translateY(0) scale(1);}to{opacity:0;transform:translateY(-4px) scale(0.99);}}
+.tab-fade-in{animation:tabFadeIn 0.22s cubic-bezier(0.34,1.1,0.64,1) both;}
+@keyframes tabFadeIn{from{opacity:0;transform:translateY(6px) scale(0.99);}to{opacity:1;transform:translateY(0) scale(1);}}
 
 /* ── TOPBAR ── */
 .topbar{padding:18px 20px 14px;position:sticky;top:0;z-index:40;
@@ -782,22 +784,37 @@ window.addEventListener('popstate', ()=>{
 });
 
 function showTab(tab, direction){
-  if(tab !== state.activeTab) pushNavLayer('tab:'+tab);
-  state.activeTab = tab;
-  document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
-  const nb = document.getElementById('nav-'+tab);
-  if(nb) nb.classList.add('active');
-  const activeH = state.hospitals.find(h=>h.id===state.activeHosp);
-  document.getElementById('topbar-title').textContent = (tab==='atendimentos'&&activeH) ? activeH.name : TITLES[tab];
-  render();
-  // Apply swipe animation (arrastar) ou fade sutil (clique normal no menu)
   const el = document.getElementById('content');
-  el.classList.remove('swipe-anim-left','swipe-anim-right','tab-fade-in');
-  void el.offsetWidth;
-  if(direction){
-    el.classList.add(direction==='left'?'swipe-anim-left':'swipe-anim-right');
+
+  function doSwitch(){
+    if(tab !== state.activeTab) pushNavLayer('tab:'+tab);
+    state.activeTab = tab;
+    document.querySelectorAll('.nav-btn').forEach(b=>b.classList.remove('active'));
+    const nb = document.getElementById('nav-'+tab);
+    if(nb) nb.classList.add('active');
+    const activeH = state.hospitals.find(h=>h.id===state.activeHosp);
+    document.getElementById('topbar-title').textContent = (tab==='atendimentos'&&activeH) ? activeH.name : TITLES[tab];
+    render();
+    // Apply swipe animation (arrastar) ou fade elegante (clique normal no menu)
+    el.classList.remove('swipe-anim-left','swipe-anim-right','tab-fade-in','tab-fade-out');
+    void el.offsetWidth;
+    if(direction){
+      el.classList.add(direction==='left'?'swipe-anim-left':'swipe-anim-right');
+    } else {
+      el.classList.add('tab-fade-in');
+    }
+  }
+
+  // Sempre faz um fade-out rápido do conteúdo atual antes de trocar — dá uma
+  // sensação de transição suave e contínua, tanto no clique do menu quanto no
+  // swipe (que na entrada mantém o deslizar na direção do gesto).
+  if(tab !== state.activeTab){
+    el.classList.remove('tab-fade-in','tab-fade-out','swipe-anim-left','swipe-anim-right');
+    void el.offsetWidth;
+    el.classList.add('tab-fade-out');
+    setTimeout(doSwitch, 130);
   } else {
-    el.classList.add('tab-fade-in');
+    doSwitch();
   }
 }
 
@@ -2774,7 +2791,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v64</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v65</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
