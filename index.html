@@ -486,10 +486,11 @@ async function handleReviewCandidate(approved){
   if(!candidate) return;
   try{
     const reviewedBy = (state.profile?.name||'').replace(/^(dr\.?|dra\.?)\s+/i,'').trim() || 'Médico MedReconcile';
+    const amostraFinal = candidate._amostraAtual || candidate.resultadosSample || [];
     const res = await fetch(`${AI_URL}/api/learning/format-candidates/${candidate.id}/review`, {
       method:'POST',
       headers:{'Content-Type':'application/json','x-api-key':AI_KEY},
-      body: JSON.stringify({approved, reviewedBy})
+      body: JSON.stringify({approved, reviewedBy, correctedSample: amostraFinal})
     });
     if(!res.ok){
       toast('Erro ao registrar a revisão. Tente novamente.','error');
@@ -877,27 +878,51 @@ function renderReviewCandidateModal(){
   if(existing) existing.remove();
   const c = state.reviewingCandidate;
   if(!c) return;
-  const amostras = c.resultadosSample || [];
+  // Usa uma cópia de trabalho da amostra, que pode ser reduzida ao excluir
+  // registros individuais, sem afetar o candidato original até confirmar.
+  if(!c._amostraAtual) c._amostraAtual = [...(c.resultadosSample || [])];
+  const amostras = c._amostraAtual;
+
+  const CAMPO_LABEL = {
+    nome_paciente: 'Paciente', numero_atendimento: 'Atendimento', data_atendimento: 'Data',
+    valor: 'Valor', convenio: 'Convênio', atividade: 'Atividade', codigo_tuss: 'Código TUSS',
+    procedimento: 'Procedimento'
+  };
+  const CAMPO_ORDEM = ['nome_paciente','numero_atendimento','data_atendimento','convenio','atividade','codigo_tuss','procedimento','valor'];
+
+  function renderCamposPaciente(p){
+    const chaves = CAMPO_ORDEM.filter(k=>p[k]!==undefined && p[k]!==null && p[k]!=='');
+    Object.keys(p).forEach(k=>{ if(!CAMPO_ORDEM.includes(k) && k!=='breakdown' && p[k]!==undefined && p[k]!==null && p[k]!=='') chaves.push(k); });
+    return chaves.map(k=>{
+      const label = CAMPO_LABEL[k] || k;
+      let val = p[k];
+      if(k==='valor') val = fmtBRL(val);
+      return `<div style="display:flex;justify-content:space-between;gap:8px;font-size:11px;padding:2px 0;">
+        <span style="color:var(--text3);font-weight:700;text-transform:uppercase;letter-spacing:.3px;">${label}</span>
+        <span style="color:var(--text);font-weight:800;text-align:right;">${val}</span>
+      </div>`;
+    }).join('') + (p.breakdown ? `<div style="margin-top:4px;padding-top:4px;border-top:1px dashed rgba(0,0,0,0.08);">${
+      Object.entries(p.breakdown).map(([papel,v])=>`<div style="display:flex;justify-content:space-between;font-size:10px;color:var(--text3);"><span>${papel}</span><span>${fmtBRL(v)}</span></div>`).join('')
+    }</div>` : '');
+  }
+
   const overlay = document.createElement('div');
   overlay.id = 'review-candidate-overlay';
   overlay.style.cssText = 'position:fixed;inset:0;background:rgba(20,30,25,0.55);z-index:600;display:flex;align-items:center;justify-content:center;padding:20px;overflow-y:auto;';
   overlay.onclick = (e)=>{ if(e.target===overlay) closeReviewCandidate(); };
   overlay.innerHTML = `
-    <div class="glass anim-up" style="width:100%;max-width:400px;padding:22px;border-radius:24px;max-height:85vh;overflow-y:auto;">
+    <div class="glass anim-up" style="width:100%;max-width:420px;padding:22px;border-radius:24px;max-height:85vh;overflow-y:auto;">
       <div style="font-size:15px;font-weight:900;color:var(--text);margin-bottom:6px;">📄 Revisar Novo Formato de Relatório</div>
       <div style="background:rgba(217,122,0,0.08);border:1px solid rgba(217,122,0,0.15);border-radius:14px;padding:12px 14px;margin-bottom:14px;">
-        <div style="font-size:12px;color:var(--text2);font-weight:600;line-height:1.5;">Este é um formato de relatório que o sistema ainda não reconhece automaticamente. Confira se os dados abaixo foram extraídos corretamente.</div>
+        <div style="font-size:12px;color:var(--text2);font-weight:600;line-height:1.5;">Este é um formato de relatório que o sistema ainda não reconhece automaticamente. Confira todos os dados abaixo — pode excluir individualmente qualquer registro que estiver errado.</div>
       </div>
-      <div style="max-height:280px;overflow-y:auto;margin-bottom:16px;">
+      <div style="max-height:340px;overflow-y:auto;margin-bottom:16px;">
         ${amostras.length===0?`
-          <div style="padding:20px;text-align:center;color:var(--text3);font-size:12px;font-style:italic;border:1px dashed rgba(0,0,0,0.12);border-radius:12px;">Nenhum dado de paciente extraído nesta amostra.</div>
-        `:amostras.map(p=>`
-          <div style="padding:10px 12px;margin-bottom:8px;background:rgba(255,255,255,0.6);border:1px solid rgba(0,0,0,0.06);border-radius:12px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
-            <div style="min-width:0;flex:1;">
-              <div style="font-size:12px;font-weight:800;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${p.nome_paciente||'Sem nome'}</div>
-              <div style="font-size:10px;color:var(--text3);font-weight:700;margin-top:2px;">Atd: ${p.numero_atendimento||'—'}${p.data_atendimento?' · '+p.data_atendimento:''}</div>
-            </div>
-            <div style="font-size:12px;font-weight:900;color:var(--text);background:rgba(0,0,0,0.04);padding:5px 9px;border-radius:8px;flex-shrink:0;">${fmtBRL(p.valor)}</div>
+          <div style="padding:20px;text-align:center;color:var(--text3);font-size:12px;font-style:italic;border:1px dashed rgba(0,0,0,0.12);border-radius:12px;">Nenhum registro restante nesta amostra.</div>
+        `:amostras.map((p,i)=>`
+          <div style="padding:10px 12px;margin-bottom:8px;background:rgba(255,255,255,0.6);border:1px solid rgba(0,0,0,0.06);border-radius:12px;position:relative;">
+            <button onclick="removerAmostraCandidato(${i})" title="Excluir este registro da amostra" style="position:absolute;top:8px;right:8px;width:22px;height:22px;border-radius:8px;border:none;background:rgba(217,64,64,0.10);color:var(--red);font-size:13px;font-weight:900;cursor:pointer;line-height:1;">✕</button>
+            <div style="padding-right:28px;">${renderCamposPaciente(p)}</div>
           </div>
         `).join('')}
       </div>
@@ -907,6 +932,11 @@ function renderReviewCandidateModal(){
       </div>
     </div>`;
   document.body.appendChild(overlay);
+}
+function removerAmostraCandidato(idx){
+  if(!state.reviewingCandidate || !state.reviewingCandidate._amostraAtual) return;
+  state.reviewingCandidate._amostraAtual.splice(idx,1);
+  renderReviewCandidateModal();
 }
 
 // ── INÍCIO ────────────────────────────────────────────────────────────────────
@@ -2791,7 +2821,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-21-v65</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-22-v66</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
