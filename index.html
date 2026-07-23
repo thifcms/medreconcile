@@ -1308,11 +1308,17 @@ function renderAtendimentos(){
           <input class="input" placeholder="Convênio" value="${p.convenio||''}"
             oninput="state.batchPreview[${i}].convenio=this.value"
             style="${p.isRetorno?'margin-bottom:8px;':''}font-size:13px;">
-          ${p._retornoDetectado?`
+          ${p._retornoDetectado?(
+            p._retornoConfirmado ? `
+          <div onclick="state.batchPreview[${i}]._retornoConfirmado=false;setTimeout(render,0);" style="margin-top:8px;padding:8px 10px;border-radius:10px;border:2px solid ${p.isRetorno===true?'rgba(91,141,239,0.3)':'rgba(100,116,139,0.3)'};background:${p.isRetorno===true?'rgba(91,141,239,0.08)':'rgba(100,116,139,0.06)'};display:flex;align-items:center;justify-content:space-between;gap:8px;cursor:pointer;">
+            <span style="font-size:11px;font-weight:800;color:${p.isRetorno===true?'#3a6cd4':'#64748b'};">${p.isRetorno===true?'↩ Retorno confirmado (sem cobrança)':'Cobrança confirmada (não é retorno)'}</span>
+            <span style="font-size:9px;font-weight:700;color:var(--text3);text-decoration:underline;">Alterar</span>
+          </div>` : `
           <div style="display:flex;gap:8px;margin-top:8px;">
-            <button onclick="state.batchPreview[${i}].isRetorno=true;setTimeout(render,0);" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===true?'#3a6cd4':'rgba(91,141,239,0.3)'};background:${p.isRetorno===true?'rgba(91,141,239,0.15)':'transparent'};color:#3a6cd4;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">↩ Confirmar retorno</button>
-            <button onclick="state.batchPreview[${i}].isRetorno=false;setTimeout(render,0);" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===false?'#64748b':'rgba(100,116,139,0.3)'};background:${p.isRetorno===false?'rgba(100,116,139,0.12)':'transparent'};color:#64748b;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Não é retorno</button>
-          </div>`:''}
+            <button onclick="state.batchPreview[${i}].isRetorno=true;state.batchPreview[${i}]._retornoConfirmado=true;setTimeout(render,0);" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===true?'#3a6cd4':'rgba(91,141,239,0.3)'};background:${p.isRetorno===true?'rgba(91,141,239,0.15)':'transparent'};color:#3a6cd4;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">↩ Confirmar retorno</button>
+            <button onclick="state.batchPreview[${i}].isRetorno=false;state.batchPreview[${i}]._retornoConfirmado=true;setTimeout(render,0);" style="flex:1;padding:8px;border-radius:10px;border:2px solid ${p.isRetorno===false?'#64748b':'rgba(100,116,139,0.3)'};background:${p.isRetorno===false?'rgba(100,116,139,0.12)':'transparent'};color:#64748b;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">Não é retorno</button>
+          </div>`
+          ):''}
         </div>`;
       }).join('')}
       <div style="display:flex;gap:10px;margin-top:14px;">
@@ -2821,7 +2827,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-22-v66</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-22-v67</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
