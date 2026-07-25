@@ -2827,7 +2827,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-22-v67</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-23-v68</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
@@ -2952,6 +2952,7 @@ function trocarPin(){
   }
 
   state.profile.appPassword = pinNovo;
+  CORRECT_PIN = pinNovo;
   saveState();
   saveProfile();
   toast('✓ PIN alterado com sucesso!','success');
@@ -3274,6 +3275,7 @@ async function encerrarSessao(){
   state.profile = {name:'',crm:'',especialidade:'',email:'',appPassword:'1234'};
   state.activeHosp = null;
   pinInput = '';
+  biometriaAutoDisparada = false;
   document.getElementById('app').style.display='none';
   document.getElementById('pin-screen').style.display='none';
   document.getElementById('login-screen').style.display='block';
@@ -3386,8 +3388,9 @@ function editPatientInline(id){
 }
 
 // ── PIN LOGIN ─────────────────────────────────────────────────────────────────
-const CORRECT_PIN = (loadState().profile && loadState().profile.appPassword) || '1234';
+let CORRECT_PIN = (loadState().profile && loadState().profile.appPassword) || '1234';
 let pinInput = '';
+let biometriaAutoDisparada = false; // evita disparo repetido se renderPin() rodar mais de uma vez (ex: onAuthStateChanged do Firebase disparando de novo)
 
 function renderLoginScreen(mode){
   mode = mode || 'main';
@@ -3516,7 +3519,15 @@ async function loadUserData(uid){
     if(data){
       if(data.hospitals) state.hospitals = data.hospitals;
       if(data.patients)  state.patients  = data.patients;
-      if(data.profile)   state.profile   = data.profile;
+      if(data.profile){
+        // O PIN (appPassword) é uma configuração de SEGURANÇA DO DISPOSITIVO,
+        // não deve ser sobrescrito pelo que está salvo na nuvem — evita que o
+        // app reverta pro PIN antigo se a sincronização estiver atrasada, ou
+        // se o PIN foi trocado num dispositivo diferente.
+        const pinLocalAtual = state.profile?.appPassword;
+        state.profile = data.profile;
+        if(pinLocalAtual) state.profile.appPassword = pinLocalAtual;
+      }
       if(data.activeHosp) state.activeHosp = data.activeHosp;
     }
   }catch(e){ console.error('Erro ao carregar dados:', e); }
@@ -3592,8 +3603,11 @@ function renderPin(err){
         </div>
       </div>
     </div>`;
-  // Disparo automático da biometria se estiver registrada
-  if(localStorage.getItem('biometria_registrada')==='1'){
+  // Disparo automático da biometria se estiver registrada — só uma vez por
+  // sessão do app, pra não ficar repetindo o pedido em loop se a tela de PIN
+  // for renderizada de novo por outro motivo (ex: Firebase re-autenticando).
+  if(localStorage.getItem('biometria_registrada')==='1' && !biometriaAutoDisparada){
+    biometriaAutoDisparada = true;
     setTimeout(()=>{ autenticarBiometria(); }, 600);
   }
 }
