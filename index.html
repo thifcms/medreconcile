@@ -1233,7 +1233,7 @@ function renderAtendimentos(){
         </label>
         <label class="btn-g" style="padding:13px;display:inline-flex;align-items:center;justify-content:center;gap:6px;cursor:pointer;font-size:13px;border-radius:14px;">
           📊 Excel
-          <input type="file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="handleExcelImport(this)">
+          <input type="file" accept=".xlsx,.xls,.xlsb,.csv" style="display:none;" onchange="handleExcelImport(this)">
         </label>
       </div>
       <button class="btn-g" style="padding:13px 16px;" onclick="toggleForm()">+ Manual</button>
@@ -1697,20 +1697,54 @@ async function handleExcelImport(input){
     const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
     const buf = await file.arrayBuffer();
     const wb = XLSX.read(buf,{type:'array'});
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
-    if(!rows.length){ toast('Planilha vazia','error'); return; }
+    const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
+    if(!rawRows.length){ toast('Planilha vazia','error'); return; }
+
+    // Alguns relatórios (ex: exportações de RH/financeiro) têm um bloco de
+    // título/metadados antes da tabela de verdade. Escaneia as primeiras 25
+    // linhas em busca da que tem mais palavras-chave de cabeçalho batendo —
+    // essa é a linha real de cabeçalho, não necessariamente a primeira.
+    const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'').trim();
+    const HEADER_KEYWORDS = ['nome','paciente','patient','atendimento','protocolo','convenio','plano','operadora','data','medico'];
+    let headerRowIdx = 0, bestScore = -1;
+    for(let i=0; i<Math.min(25, rawRows.length); i++){
+      const row = rawRows[i];
+      if(!Array.isArray(row)) continue;
+      const score = row.filter(cell => HEADER_KEYWORDS.some(kw => nn(cell).includes(kw))).length;
+      if(score > bestScore){ bestScore = score; headerRowIdx = i; }
+    }
+
+    const headers = rawRows[headerRowIdx].map(h => String(h||'').trim());
+    // Evita que colunas com o MESMO nome (ex: duas colunas "Paciente" na
+    // mesma planilha) se sobrescrevam — mantém a primeira intacta e renomeia
+    // as repetições seguintes, sem perder nenhum dado.
+    const seenHeaders = {};
+    const uniqueHeaders = headers.map(h => {
+      if(!h) return h;
+      if(!seenHeaders[h]){ seenHeaders[h] = 1; return h; }
+      seenHeaders[h]++;
+      return `${h}_${seenHeaders[h]}`;
+    });
+    const dataRows = rawRows.slice(headerRowIdx + 1)
+      .filter(r => Array.isArray(r) && r.some(c => String(c||'').trim() !== ''))
+      .map(r => {
+        const obj = {};
+        uniqueHeaders.forEach((h, idx) => { if(h) obj[h] = r[idx] !== undefined ? r[idx] : ''; });
+        return obj;
+      });
+
+    if(!dataRows.length){ toast('Planilha vazia','error'); return; }
 
     // Tenta mapear colunas automaticamente
-    const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,'').trim();
     const findCol = (row, keywords) => Object.keys(row).find(k=>keywords.some(kw=>nn(k).includes(nn(kw))));
 
-    const firstRow = rows[0];
+    const firstRow = dataRows[0];
     const colNome   = findCol(firstRow,['nome','paciente','patient']);
     const colAtd    = findCol(firstRow,['atendimento','protocolo','numero','atend']);
     const colConv   = findCol(firstRow,['convenio','plano','operadora']);
     const colData   = findCol(firstRow,['data','date']);
 
-    const imported = rows.map(r=>({
+    const imported = dataRows.map(r=>({
       nome: colNome ? String(r[colNome]||'') : '',
       atendimento: colAtd ? String(r[colAtd]||'') : '',
       convenio: colConv ? String(r[colConv]||'') : '',
@@ -2177,7 +2211,7 @@ function renderAuditagem(){
         <div style="display:flex;gap:10px;">
           <label style="flex:1;padding:14px;background:#fff;color:#065F46;font-weight:900;font-size:14px;border:none;border-radius:16px;cursor:pointer;font-family:inherit;box-shadow:0 10px 24px rgba(0,0,0,0.12);display:flex;align-items:center;justify-content:center;gap:8px;">
             📄 Carregar Relatório
-            <input type="file" accept=".xlsx,.xls,.csv,.pdf,image/*" style="display:none;" onchange="handleRelatorio(this)">
+            <input type="file" accept=".xlsx,.xls,.xlsb,.csv,.pdf,image/*" style="display:none;" onchange="handleRelatorio(this)">
           </label>
           <button onclick="showManualConcil()" style="padding:14px;background:rgba(255,255,255,0.22);color:#fff;font-weight:800;font-size:13px;border:1px solid rgba(255,255,255,0.30);border-radius:16px;cursor:pointer;font-family:inherit;white-space:nowrap;">
             ✍ Manual
@@ -2321,14 +2355,41 @@ async function handleRelatorio(input){
   const name = file.name.toLowerCase();
   
   // Excel/CSV: leitura local
-  if(name.endsWith('.xlsx')||name.endsWith('.xls')||name.endsWith('.csv')){
+  if(name.endsWith('.xlsx')||name.endsWith('.xls')||name.endsWith('.xlsb')||name.endsWith('.csv')){
     toast('Lendo planilha...','info');
     try {
       const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
       const buf = await file.arrayBuffer();
       const wb = XLSX.read(buf,{type:'array'});
-      const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]],{defval:''});
       const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
+
+      // Alguns relatórios têm um bloco de título/metadados antes da tabela
+      // de verdade — escaneia as primeiras 25 linhas em busca da que tem
+      // mais palavras-chave de cabeçalho batendo.
+      const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
+      const HEADER_KEYWORDS = ['nome','paciente','patient','atendimento','protocolo','convenio','plano','operadora','data','medico','pagar','repasse','honorario','valor'];
+      let headerRowIdx = 0, bestScore = -1;
+      for(let i=0; i<Math.min(25, rawRows.length); i++){
+        const row = rawRows[i];
+        if(!Array.isArray(row)) continue;
+        const score = row.filter(cell => HEADER_KEYWORDS.some(kw => nn(cell).replace(/\s+/g,'').includes(kw))).length;
+        if(score > bestScore){ bestScore = score; headerRowIdx = i; }
+      }
+      const rawHeaders = rawRows[headerRowIdx].map(h => String(h||'').trim());
+      const seenHeaders = {};
+      const uniqueHeaders = rawHeaders.map(h => {
+        if(!h) return h;
+        if(!seenHeaders[h]){ seenHeaders[h] = 1; return h; }
+        seenHeaders[h]++;
+        return `${h}_${seenHeaders[h]}`;
+      });
+      const rows = rawRows.slice(headerRowIdx + 1)
+        .filter(r => Array.isArray(r) && r.some(c => String(c||'').trim() !== ''))
+        .map(r => {
+          const obj = {};
+          uniqueHeaders.forEach((h, idx) => { if(h) obj[h] = r[idx] !== undefined ? r[idx] : ''; });
+          return obj;
+        });
       
       // Detecta coluna de valor pago na planilha
       const colsValor = ['r$ a pagar','a pagar','rapagar','valor pago','vl.repasse','vl repasse','vlrepasse','repasse','valor repasse','honorarios','honorários','vlr pago','vlr.pago'];
@@ -2827,7 +2888,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-07-23-v68</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v69</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
