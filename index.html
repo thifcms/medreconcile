@@ -2328,8 +2328,8 @@ function normalizarDataParaComparacao(dataStr){
   // Formato já ISO: YYYY-MM-DD
   let m = s.match(/^(\d{4})-(\d{2})-(\d{2})/);
   if(m) return `${m[1]}-${m[2]}-${m[3]}`;
-  // Formato BR: DD/MM/AAAA ou DD/MM/AA
-  m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
+  // Formato BR: DD/MM/AAAA, DD/MM/AA, DD.MM.AAAA ou DD.MM.AA
+  m = s.match(/^(\d{1,2})[\/.](\d{1,2})[\/.](\d{2,4})$/);
   if(m){
     let [,dd,mm,yy] = m;
     dd = dd.padStart(2,'0'); mm = mm.padStart(2,'0');
@@ -2450,7 +2450,25 @@ async function handleRelatorio(input){
         return candidatosPorNome[0];
       };
 
-      const encontrados = pendsFiltrados.filter(p=>encontrarMatchExcel(p));
+      // Valida se a data do ATENDIMENTO NA PLANILHA (não a data local cadastrada)
+      // está dentro do período selecionado — mesma proteção já aplicada no fluxo
+      // de PDF (v59): sem isso, um paciente pendente com data local dentro do
+      // período pode "pegar carona" numa linha da planilha cuja data real é de
+      // fora do período, só porque o nome ou atendimento coincidiu.
+      const dataDaLinhaDentroDoPeriodo = (rowMatch) => {
+        if(!state.concilPeriodoInicio && !state.concilPeriodoFim) return true;
+        if(!rowMatch || !colData) return true; // sem coluna de data na planilha, não dá pra checar
+        const dataLinha = normalizarDataParaComparacao(rowMatch[colData]);
+        if(!dataLinha) return true; // não deu pra normalizar, não bloqueia por segurança
+        if(state.concilPeriodoInicio && dataLinha < state.concilPeriodoInicio) return false;
+        if(state.concilPeriodoFim && dataLinha > state.concilPeriodoFim) return false;
+        return true;
+      };
+
+      const encontrados = pendsFiltrados.filter(p=>{
+        const m = encontrarMatchExcel(p);
+        return m && dataDaLinhaDentroDoPeriodo(m);
+      });
       state.concilPreview = encontrados.map(p=>{
         // Tenta encontrar o valor pago na linha correspondente da planilha
         const rowMatch = encontrarMatchExcel(p);
@@ -2888,7 +2906,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v69</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v70</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
