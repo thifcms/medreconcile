@@ -949,6 +949,19 @@ function renderInicio(){
   const pagos = hospAtts.filter(p=>p.status==='PAGO');
 
   return `
+    ${window.ultimoErroSalvamento?`
+    <div class="glass anim-up" style="padding:16px 18px;margin-bottom:16px;border-left:3px solid var(--red);background:rgba(217,64,64,0.06);">
+      <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
+        <div style="display:flex;align-items:center;gap:12px;flex:1;min-width:200px;">
+          <div style="width:38px;height:38px;border-radius:12px;background:rgba(217,64,64,0.12);display:flex;align-items:center;justify-content:center;font-size:18px;flex-shrink:0;">⚠️</div>
+          <div>
+            <div style="font-size:11px;font-weight:800;color:var(--red);text-transform:uppercase;letter-spacing:.5px;">Dados Não Sincronizados</div>
+            <div style="font-size:12px;color:var(--text2);font-weight:600;margin-top:2px;">Suas últimas alterações ainda não foram salvas na nuvem. Não desinstale o app até isso ser resolvido.</div>
+          </div>
+        </div>
+        <button onclick="tentarSalvarNovamenteManualmente();toast('Tentando salvar de novo...','info');" style="padding:9px 16px;border-radius:12px;background:linear-gradient(135deg,#d94040,#b83030);color:#fff;border:none;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;">Tentar de Novo</button>
+      </div>
+    </div>`:''}
     ${state.pendingCandidates.length>0?`
     <div class="glass anim-up" style="padding:16px 18px;margin-bottom:16px;border-left:3px solid var(--orange);background:rgba(217,122,0,0.06);">
       <div style="display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap;">
@@ -2924,7 +2937,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v72</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v73</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
@@ -3609,13 +3622,27 @@ async function loginGoogle(){
   }
 }
 
+// Rastreia se existem mudanças locais que AINDA não foram confirmadas como
+// salvas na nuvem. Enquanto isso for verdade, loadUserData() não pode
+// sobrescrever patients/hospitals com o que vier da nuvem — senão uma
+// mudança recente (que ainda não "pegou" lá) pode ser revertida sem aviso.
+let versaoSalvaPendente = 0;
+let versaoConfirmadaNaNuvem = 0;
+let tentativaDeSalvarAgendada = null;
+let tentativasDeSalvarSeguidas = 0;
+window.ultimoErroSalvamento = null; // usado pelo indicador visual na tela
+
 async function loadUserData(uid){
   if(!window.fbLoadData) return;
   try{
     const data = await window.fbLoadData(uid);
     if(data){
-      if(data.hospitals) state.hospitals = data.hospitals;
-      if(data.patients)  state.patients  = data.patients;
+      const temMudancaLocalNaoConfirmada = versaoSalvaPendente > versaoConfirmadaNaNuvem;
+      if(data.hospitals && !temMudancaLocalNaoConfirmada) state.hospitals = data.hospitals;
+      if(data.patients  && !temMudancaLocalNaoConfirmada) state.patients  = data.patients;
+      if(temMudancaLocalNaoConfirmada){
+        console.warn('[MedReconcile] Existem mudanças locais ainda não confirmadas na nuvem — pulando sobrescrita de patients/hospitals para não perder dado recente.');
+      }
       if(data.profile){
         // O PIN (appPassword) é uma configuração de SEGURANÇA DO DISPOSITIVO,
         // não deve ser sobrescrito pelo que está salvo na nuvem — evita que o
@@ -3632,6 +3659,7 @@ async function loadUserData(uid){
 
 async function saveToFirebase(){
   if(!window.currentUser || !window.fbSaveData) return;
+  const minhaVersao = ++versaoSalvaPendente;
   try{
     await window.fbSaveData(window.currentUser.uid, {
       hospitals: state.hospitals,
@@ -3639,7 +3667,33 @@ async function saveToFirebase(){
       profile:   state.profile,
       activeHosp: state.activeHosp
     });
-  }catch(e){ console.error('Erro ao salvar:', e); }
+    if(minhaVersao > versaoConfirmadaNaNuvem) versaoConfirmadaNaNuvem = minhaVersao;
+    if(tentativaDeSalvarAgendada){ clearTimeout(tentativaDeSalvarAgendada); tentativaDeSalvarAgendada = null; }
+    tentativasDeSalvarSeguidas = 0;
+    if(window.ultimoErroSalvamento){ window.ultimoErroSalvamento = null; render(); }
+  }catch(e){
+    console.error('Erro ao salvar:', e);
+    tentativasDeSalvarSeguidas++;
+    const mensagemErro = e && e.message ? e.message : 'motivo desconhecido';
+    const ehErroPermanente = /permission|unauthorized|denied/i.test(mensagemErro);
+    window.ultimoErroSalvamento = { mensagem: mensagemErro, em: new Date().toISOString(), permanente: ehErroPermanente };
+
+    if(ehErroPermanente || tentativasDeSalvarSeguidas >= 5){
+      // Não adianta ficar tentando de novo sozinho — mostra aviso persistente
+      // na tela (não some como um toast) até o usuário tentar manualmente.
+      toast('Não foi possível salvar seus dados na nuvem. Veja o aviso na tela inicial.', 'error');
+      render();
+    } else {
+      toast('Falha ao salvar na nuvem — tentando de novo em instantes.', 'error');
+      if(tentativaDeSalvarAgendada) clearTimeout(tentativaDeSalvarAgendada);
+      tentativaDeSalvarAgendada = setTimeout(() => { saveToFirebase(); }, 10000);
+    }
+  }
+}
+
+function tentarSalvarNovamenteManualmente(){
+  tentativasDeSalvarSeguidas = 0;
+  saveToFirebase();
 }
 
 function showPinOrApp(){
