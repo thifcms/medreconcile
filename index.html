@@ -2479,9 +2479,25 @@ async function handleRelatorio(input){
       
       if(colValor) toast(`Coluna de valor encontrada: "${colValor}"`, 'info');
       render();
-      if(encontrados.length) toast(`${encontrados.length} pacientes encontrados — confirme abaixo`,'success');
-      else toast('Nenhum paciente encontrado na planilha','error');
-    } catch(e) { toast('Erro ao ler planilha','error'); }
+      if(encontrados.length){
+        toast(`${encontrados.length} pacientes encontrados — confirme abaixo`,'success');
+      } else {
+        console.log('[MedReconcile] Diagnóstico — nenhum paciente encontrado:', {
+          linhasNaPlanilha: rows.length,
+          colunaNomeDetectada: colNome,
+          colunaAtendimentoDetectada: colAtd,
+          colunaConvenioDetectada: colConv,
+          colunaDataDetectada: colData,
+          colunaValorDetectada: colValor,
+          pacientesLocaisNoHospital: pends.length,
+          pacientesLocaisNoPeriodo: pendsFiltrados.length,
+          periodoSelecionado: {inicio: state.concilPeriodoInicio, fim: state.concilPeriodoFim},
+          amostraPrimeiraLinhaLida: rows[0],
+          amostraPrimeiroPendente: pendsFiltrados[0]
+        });
+        toast(`Nenhum paciente encontrado. Lidas ${rows.length} linhas da planilha, ${pendsFiltrados.length} pacientes pendentes no período — nenhum bateu. Veja o console para detalhes.`,'error');
+      }
+    } catch(e) { toast('Erro ao ler planilha: '+(e?.message||'motivo desconhecido'),'error'); console.error('[MedReconcile] Erro no import de planilha:', e); }
     return;
   }
   
@@ -2908,7 +2924,7 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v71</div>`;
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-19-v72</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
