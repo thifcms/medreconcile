@@ -2788,8 +2788,14 @@ function renderConfig(){
   // Cada unidade tem seu próprio valor de repasse por convênio — nunca deve
   // ser misturado com o valor de outra unidade, mesmo que o convênio seja o
   // mesmo nome. Só considera pacientes PAGO (valores confirmados pelo hospital).
-  const CONVENIOS_LIST = ['Unimed','Amil','Bradesco Saúde','SulAmérica','Porto Seguro',
-    'Prevent Senior','NotreDame Intermédica','Hapvida','Particular','Outro'];
+  //
+  // A lista de convênios é DESCOBERTA a partir dos dados reais dos pacientes,
+  // não uma lista fixa — assim nenhum convênio digitado com nome diferente do
+  // esperado (ex: "SulAmerica" sem acento, ou uma operadora nova) fica de fora
+  // do detalhamento e da estimativa sem avisar.
+  const CONVENIOS_LIST = [...new Set(
+    allPats.map(p => (p.convenio||'').trim()).filter(Boolean)
+  )].sort();
 
   const mediaConvenioPorUnidade = {}; // { [hospId]: { [conv]: media|null } }
   state.hospitals.forEach(h => {
@@ -2818,15 +2824,20 @@ function renderConfig(){
 
   // Estimativa do mês = para cada paciente do mês, aplica a média histórica
   // da PRÓPRIA UNIDADE dele pro convênio. Se essa unidade específica não tem
-  // histórico ainda naquele convênio, não inclui na estimativa.
+  // histórico ainda naquele convênio (ou o paciente não tem convênio
+  // preenchido), avisa e não inclui na estimativa — nunca fica invisível.
   let estimadoMes = 0;
   const semHistorico = [];
   patsMes.forEach(a => {
-    const media = getMedia(a.hospId, a.convenio);
+    const conv = (a.convenio||'').trim();
+    if(!conv){
+      return;
+    }
+    const media = getMedia(a.hospId, conv);
     if(media != null) estimadoMes += media;
-    else if(a.convenio){
+    else {
       const h = state.hospitals.find(h=>h.id===a.hospId);
-      const chave = `${a.convenio} (${h?h.name:'?'})`;
+      const chave = `${conv} (${h?h.name:'?'})`;
       if(!semHistorico.includes(chave)) semHistorico.push(chave);
     }
   });
@@ -2835,16 +2846,17 @@ function renderConfig(){
   const porUnidade = state.hospitals.map(h => {
     const pats = patsMes.filter(p=>p.hospId===h.id);
     let est = 0;
-    pats.forEach(a => { const m = getMedia(h.id, a.convenio); if(m!=null) est += m; });
+    pats.forEach(a => { const m = getMedia(h.id, (a.convenio||'').trim()); if(m!=null) est += m; });
     // Breakdown por convênio dentro desta unidade específica
     const convsDaUnidade = CONVENIOS_LIST.map(conv => {
-      const patsConv = pats.filter(a=>a.convenio===conv);
+      const patsConv = pats.filter(a=>(a.convenio||'').trim()===conv);
       if(!patsConv.length) return null;
       const media = getMedia(h.id, conv);
-      const histPats = allPats.filter(a=>a.hospId===h.id && a.convenio===conv && a.status==='PAGO').length;
+      const histPats = allPats.filter(a=>a.hospId===h.id && (a.convenio||'').trim()===conv && a.status==='PAGO').length;
       return {conv, pats:patsConv.length, media, est: media!=null?media*patsConv.length:null, histPats};
     }).filter(Boolean);
-    return {name:h.name, pats:pats.length, est, convs:convsDaUnidade};
+    const patsSemConv = pats.filter(a=>!(a.convenio||'').trim()).length;
+    return {name:h.name, pats:pats.length, est, convs:convsDaUnidade, patsSemConv};
   }).filter(u=>u.pats>0);
 
   return `
@@ -2874,7 +2886,7 @@ function renderConfig(){
       <div style="padding:14px 18px;background:rgba(0,0,0,0.02);display:flex;justify-content:space-between;align-items:center;">
         <div>
           <div style="font-weight:900;font-size:14px;color:var(--text);">${u.name}</div>
-          <div style="font-size:12px;color:var(--text3);margin-top:2px;font-weight:600;">${u.pats} paciente${u.pats>1?'s':''} no mês</div>
+          <div style="font-size:12px;color:var(--text3);margin-top:2px;font-weight:600;">${u.pats} paciente${u.pats>1?'s':''} no mês${u.patsSemConv>0?` <span style="color:var(--orange);">(${u.patsSemConv} sem convênio preenchido)</span>`:''}</div>
         </div>
         <div style="font-weight:900;font-size:16px;color:var(--green2);">${fmtBRL(u.est)}</div>
       </div>
@@ -3024,7 +3036,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v79</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v80</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
