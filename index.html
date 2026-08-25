@@ -2235,8 +2235,52 @@ function renderAuditagem(){
         <button onclick="reverterConcil()" style="width:100%;margin-top:10px;padding:10px;background:rgba(239,68,68,0.20);border:1px solid rgba(239,68,68,0.35);border-radius:12px;color:#fca5a5;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">
           ↩ Reverter última conciliação (${state.ultimaConcil.length} pacientes)
         </button>`:''}
+        <button onclick="abrirReverterPeriodo()" style="width:100%;margin-top:10px;padding:10px;background:rgba(255,255,255,0.14);border:1px solid rgba(255,255,255,0.24);border-radius:12px;color:#fff;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">
+          ↩ Reverter Conciliação por Período (correção de erros)
+        </button>
       </div>
     </div>
+    ${state.reverterPeriodoModal?`
+    <div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
+      <div style="font-size:14px;font-weight:900;color:var(--text);margin-bottom:4px;">Reverter Conciliação por Período</div>
+      <div style="font-size:11px;color:var(--text3);font-weight:600;margin-bottom:14px;line-height:1.5;">
+        Volta pra "Pendente" todos os pacientes marcados como PAGO nesta unidade, cuja data de atendimento esteja dentro do período escolhido. Use pra corrigir uma conciliação feita com erro e refazer do zero.
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <div style="flex:1;">
+          <div class="lbl" style="margin-bottom:5px;">De</div>
+          <input type="date" id="reverterPeriodoInicio" class="input" style="width:100%;">
+        </div>
+        <div style="flex:1;">
+          <div class="lbl" style="margin-bottom:5px;">Até</div>
+          <input type="date" id="reverterPeriodoFim" class="input" style="width:100%;">
+        </div>
+      </div>
+      <div style="display:flex;gap:10px;">
+        <button onclick="state.reverterPeriodoModal=false;render();" class="btn-g" style="flex:1;padding:13px;">Cancelar</button>
+        <button onclick="previewReverterPeriodo()" style="flex:1;padding:13px;border-radius:14px;background:var(--red);color:#fff;border:none;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">Ver Pacientes Afetados</button>
+      </div>
+    </div>`:''}
+    ${state.reverterPeriodoPreview?`
+    <div class="glass anim-up" style="padding:20px;margin-bottom:20px;border:1.5px solid rgba(239,68,68,0.35);">
+      <div style="font-size:14px;font-weight:900;color:var(--red);margin-bottom:10px;">
+        ${state.reverterPeriodoPreview.length} paciente${state.reverterPeriodoPreview.length!==1?'s':''} será${state.reverterPeriodoPreview.length!==1?'ão':''} revertido${state.reverterPeriodoPreview.length!==1?'s':''} pra Pendente
+      </div>
+      ${state.reverterPeriodoPreview.length===0?`
+      <div style="font-size:12px;color:var(--text3);font-weight:600;margin-bottom:14px;">Nenhum paciente PAGO encontrado nesse período, nesta unidade.</div>`:`
+      <div style="max-height:240px;overflow-y:auto;margin-bottom:14px;">
+        ${state.reverterPeriodoPreview.map(p=>`
+        <div style="padding:9px 12px;margin-bottom:6px;background:rgba(239,68,68,0.05);border-radius:10px;display:flex;justify-content:space-between;align-items:center;">
+          <div style="font-size:12px;font-weight:700;color:var(--text);">${p.nome}</div>
+          <div style="font-size:12px;font-weight:800;color:var(--text3);">${fmtBRL(p.valorPago||p.valor)}</div>
+        </div>`).join('')}
+      </div>`}
+      <div style="display:flex;gap:10px;">
+        <button onclick="state.reverterPeriodoPreview=null;state.reverterPeriodoModal=false;render();" class="btn-g" style="flex:1;padding:13px;">Cancelar</button>
+        ${state.reverterPeriodoPreview.length>0?`
+        <button onclick="confirmarReverterPeriodo()" style="flex:1;padding:13px;border-radius:14px;background:var(--red);color:#fff;border:none;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">Confirmar Reversão</button>`:''}
+      </div>
+    </div>`:''}
     ${state.concilPreview?`
     <div class="glass anim-up" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--green);">
       <div style="font-size:14px;font-weight:900;color:var(--green2);margin-bottom:4px;">✓ Pacientes encontrados no relatório</div>
@@ -2681,6 +2725,45 @@ function reverterConcil(){
   render();
   toast(`↩ ${n} pacientes revertidos para o estado anterior à conciliação`,'info');
 }
+
+function abrirReverterPeriodo(){
+  state.reverterPeriodoModal = true;
+  state.reverterPeriodoPreview = null;
+  render();
+}
+
+function previewReverterPeriodo(){
+  const inicio = document.getElementById('reverterPeriodoInicio')?.value;
+  const fim = document.getElementById('reverterPeriodoFim')?.value;
+  if(!inicio || !fim){ toast('Escolha as duas datas do período','error'); return; }
+  if(inicio > fim){ toast('A data inicial não pode ser depois da final','error'); return; }
+
+  const afetados = state.patients.filter(p=>{
+    if(p.hospId !== state.activeHosp || p.status !== 'PAGO') return false;
+    const dataP = normalizarDataParaComparacao(p.data);
+    if(!dataP) return false;
+    return dataP >= inicio && dataP <= fim;
+  });
+
+  state.reverterPeriodoPreview = afetados;
+  state.reverterPeriodoInicioSalvo = inicio;
+  state.reverterPeriodoFimSalvo = fim;
+  render();
+}
+
+function confirmarReverterPeriodo(){
+  if(!state.reverterPeriodoPreview || !state.reverterPeriodoPreview.length) return;
+  const ids = state.reverterPeriodoPreview.map(p=>p.id);
+  state.patients = state.patients.map(p=>
+    ids.includes(p.id) ? {...p, status:'PENDENTE', valorPago:0} : p
+  );
+  const n = ids.length;
+  state.reverterPeriodoPreview = null;
+  state.reverterPeriodoModal = false;
+  saveState();
+  render();
+  toast(`↩ ${n} paciente${n!==1?'s':''} revertido${n!==1?'s':''} pra Pendente. Pode refazer a conciliação desse período.`,'info');
+}
 function fakeConciliacao(){
   toast('Processando relatório com IA...','info');
   setTimeout(()=>{
@@ -2941,7 +3024,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v78</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v79</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
