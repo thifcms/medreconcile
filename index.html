@@ -2701,23 +2701,27 @@ function renderConfig(){
   const hoje = new Date();
   const mesAtual = `${String(hoje.getMonth()+1).padStart(2,'0')}/${hoje.getFullYear()}`;
 
-  // ── MÉDIA HISTÓRICA ACUMULADA POR CONVÊNIO ──────────────────────────────────
-  // Para cada convênio: soma todos os valores pagos (histórico) ÷ total de pacientes pagos
-  // Só considera pacientes PAGO (valores confirmados pelo hospital)
+  // ── MÉDIA HISTÓRICA POR UNIDADE + CONVÊNIO ──────────────────────────────────
+  // Cada unidade tem seu próprio valor de repasse por convênio — nunca deve
+  // ser misturado com o valor de outra unidade, mesmo que o convênio seja o
+  // mesmo nome. Só considera pacientes PAGO (valores confirmados pelo hospital).
   const CONVENIOS_LIST = ['Unimed','Amil','Bradesco Saúde','SulAmérica','Porto Seguro',
     'Prevent Senior','NotreDame Intermédica','Hapvida','Particular','Outro'];
 
-  const mediaConvenio = {};
-  CONVENIOS_LIST.forEach(conv => {
-    // Todos os pacientes pagos deste convênio em todos os meses/unidades
-    const pagosConv = allPats.filter(a => a.convenio === conv && a.status === 'PAGO');
-    if(pagosConv.length > 0){
-      const totalRecebido = pagosConv.reduce((s,a) => s + (a.valorPago || a.valor || 0), 0);
-      mediaConvenio[conv] = totalRecebido / pagosConv.length; // média histórica por paciente
-    } else {
-      mediaConvenio[conv] = null; // sem histórico ainda
-    }
+  const mediaConvenioPorUnidade = {}; // { [hospId]: { [conv]: media|null } }
+  state.hospitals.forEach(h => {
+    mediaConvenioPorUnidade[h.id] = {};
+    CONVENIOS_LIST.forEach(conv => {
+      const pagosConv = allPats.filter(a => a.hospId === h.id && a.convenio === conv && a.status === 'PAGO');
+      if(pagosConv.length > 0){
+        const totalRecebido = pagosConv.reduce((s,a) => s + (a.valorPago || a.valor || 0), 0);
+        mediaConvenioPorUnidade[h.id][conv] = totalRecebido / pagosConv.length;
+      } else {
+        mediaConvenioPorUnidade[h.id][conv] = null;
+      }
+    });
   });
+  const getMedia = (hospId, conv) => mediaConvenioPorUnidade[hospId] ? mediaConvenioPorUnidade[hospId][conv] : null;
 
   // Pacientes do mês atual
   const patsMes = allPats.filter(a => {
@@ -2729,33 +2733,36 @@ function renderConfig(){
     return `${mm}/${yyyy}` === mesAtual;
   });
 
-  // Estimativa do mês = para cada paciente do mês, aplica a média histórica do convênio
-  // Se não houver histórico do convênio, não inclui na estimativa
+  // Estimativa do mês = para cada paciente do mês, aplica a média histórica
+  // da PRÓPRIA UNIDADE dele pro convênio. Se essa unidade específica não tem
+  // histórico ainda naquele convênio, não inclui na estimativa.
   let estimadoMes = 0;
   const semHistorico = [];
   patsMes.forEach(a => {
-    const media = mediaConvenio[a.convenio];
+    const media = getMedia(a.hospId, a.convenio);
     if(media != null) estimadoMes += media;
-    else if(a.convenio && !semHistorico.includes(a.convenio)) semHistorico.push(a.convenio);
+    else if(a.convenio){
+      const h = state.hospitals.find(h=>h.id===a.hospId);
+      const chave = `${a.convenio} (${h?h.name:'?'})`;
+      if(!semHistorico.includes(chave)) semHistorico.push(chave);
+    }
   });
 
-  // Detalhamento por unidade
+  // Detalhamento por unidade — usa a média da PRÓPRIA unidade
   const porUnidade = state.hospitals.map(h => {
     const pats = patsMes.filter(p=>p.hospId===h.id);
     let est = 0;
-    pats.forEach(a => { if(mediaConvenio[a.convenio]!=null) est += mediaConvenio[a.convenio]; });
-    return {name:h.name, pats:pats.length, est};
+    pats.forEach(a => { const m = getMedia(h.id, a.convenio); if(m!=null) est += m; });
+    // Breakdown por convênio dentro desta unidade específica
+    const convsDaUnidade = CONVENIOS_LIST.map(conv => {
+      const patsConv = pats.filter(a=>a.convenio===conv);
+      if(!patsConv.length) return null;
+      const media = getMedia(h.id, conv);
+      const histPats = allPats.filter(a=>a.hospId===h.id && a.convenio===conv && a.status==='PAGO').length;
+      return {conv, pats:patsConv.length, media, est: media!=null?media*patsConv.length:null, histPats};
+    }).filter(Boolean);
+    return {name:h.name, pats:pats.length, est, convs:convsDaUnidade};
   }).filter(u=>u.pats>0);
-
-  // Breakdown por convênio no mês atual (para exibir detalhes)
-  const convMes = CONVENIOS_LIST.map(conv => {
-    const pats = patsMes.filter(a=>a.convenio===conv);
-    if(!pats.length) return null;
-    const media = mediaConvenio[conv];
-    const est = media!=null ? media*pats.length : null;
-    const histPats = allPats.filter(a=>a.convenio===conv&&a.status==='PAGO').length;
-    return {conv, pats:pats.length, media, est, histPats};
-  }).filter(Boolean);
 
   return `
     <div class="glass anim-up" style="padding:24px;text-align:center;margin-bottom:20px;">
@@ -2779,55 +2786,50 @@ function renderConfig(){
 
     ${porUnidade.length>0?`
     <div class="lbl" style="margin-bottom:10px;">Estimativa por Unidade — ${mesAtual}</div>
-    <div class="glass anim-up" style="padding:0;overflow:hidden;margin-bottom:20px;">
-      ${porUnidade.map((u,i)=>`
-      <div style="padding:14px 18px;${i<porUnidade.length-1?'border-bottom:1px solid rgba(0,0,0,0.05);':''}display:flex;justify-content:space-between;align-items:center;">
+    ${porUnidade.map(u=>`
+    <div class="glass anim-up" style="padding:0;overflow:hidden;margin-bottom:14px;">
+      <div style="padding:14px 18px;background:rgba(0,0,0,0.02);display:flex;justify-content:space-between;align-items:center;">
         <div>
-          <div style="font-weight:800;font-size:14px;color:var(--text);">${u.name}</div>
+          <div style="font-weight:900;font-size:14px;color:var(--text);">${u.name}</div>
           <div style="font-size:12px;color:var(--text3);margin-top:2px;font-weight:600;">${u.pats} paciente${u.pats>1?'s':''} no mês</div>
         </div>
-        <div style="font-weight:900;font-size:15px;color:var(--green2);">${fmtBRL(u.est)}</div>
-      </div>`).join('')}
-      <div style="padding:14px 18px;background:rgba(46,200,102,0.05);border-top:2px solid rgba(46,200,102,0.15);display:flex;justify-content:space-between;align-items:center;">
-        <div style="font-weight:900;font-size:13px;color:var(--text2);">TOTAL ESTIMADO</div>
-        <div style="font-weight:900;font-size:16px;color:var(--green2);">${fmtBRL(estimadoMes)}</div>
+        <div style="font-weight:900;font-size:16px;color:var(--green2);">${fmtBRL(u.est)}</div>
       </div>
-    </div>`:''}
-
-    ${convMes.length>0?`
-    <div class="lbl" style="margin-bottom:10px;">Média Histórica por Convênio</div>
-    <div class="glass anim-up" style="padding:0;overflow:hidden;margin-bottom:20px;">
-      ${convMes.map((x,i)=>`
-      <div style="padding:13px 18px;${i<convMes.length-1?'border-bottom:1px solid rgba(0,0,0,0.05);':''}">
-        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:5px;">
-          <div style="font-weight:800;font-size:13px;color:var(--text);">${x.conv}</div>
-          <div style="font-weight:900;font-size:14px;color:${x.est!=null?'var(--green2)':'var(--text3)'};">
+      ${u.convs.map((x,i)=>`
+      <div style="padding:12px 18px;${i<u.convs.length-1?'border-bottom:1px solid rgba(0,0,0,0.05);':''}">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">
+          <div style="font-weight:800;font-size:12px;color:var(--text2);">${x.conv}</div>
+          <div style="font-weight:900;font-size:13px;color:${x.est!=null?'var(--green2)':'var(--text3)'};">
             ${x.est!=null?fmtBRL(x.est):'Sem histórico'}
           </div>
         </div>
         <div style="display:flex;gap:12px;">
-          <div style="font-size:11px;color:var(--text3);font-weight:600;">${x.pats} pac. este mês</div>
+          <div style="font-size:10px;color:var(--text3);font-weight:600;">${x.pats} pac. este mês</div>
           ${x.media!=null
-            ?`<div style="font-size:11px;color:var(--text3);font-weight:600;">×</div>
-              <div style="font-size:11px;color:var(--green2);font-weight:700;">média ${fmtBRL(x.media)}/pac (${x.histPats} pac. histórico)</div>`
-            :`<div style="font-size:11px;color:var(--orange);font-weight:600;">⚠ Aguardando 1º pagamento confirmado</div>`
+            ?`<div style="font-size:10px;color:var(--text3);font-weight:600;">×</div>
+              <div style="font-size:10px;color:var(--green2);font-weight:700;">média ${fmtBRL(x.media)}/pac (${x.histPats} pac. histórico nesta unidade)</div>`
+            :`<div style="font-size:10px;color:var(--orange);font-weight:600;">⚠ Aguardando 1º pagamento confirmado NESTA unidade</div>`
           }
         </div>
       </div>`).join('')}
+    </div>`).join('')}
+    <div class="glass anim-up" style="padding:14px 18px;margin-bottom:20px;background:rgba(46,200,102,0.05);border:2px solid rgba(46,200,102,0.15);display:flex;justify-content:space-between;align-items:center;">
+      <div style="font-weight:900;font-size:13px;color:var(--text2);">TOTAL ESTIMADO (TODAS AS UNIDADES)</div>
+      <div style="font-weight:900;font-size:16px;color:var(--green2);">${fmtBRL(estimadoMes)}</div>
     </div>`:''}
 
     ${semHistorico.length>0?`
     <div class="glass anim-up" style="padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px;background:rgba(217,122,0,0.06);border:1px solid rgba(217,122,0,0.16);">
       <div style="font-size:18px;flex-shrink:0;">⚠️</div>
       <div style="font-size:12px;color:var(--orange);font-weight:700;line-height:1.5;">
-        ${semHistorico.join(', ')} sem histórico de pagamentos confirmados. O valor destes convênios não foi incluído na estimativa.
+        ${semHistorico.join(', ')} sem histórico de pagamentos confirmados NESSA unidade. O valor destes não foi incluído na estimativa.
       </div>
     </div>`:''}
 
     <div class="glass anim-up" style="padding:14px 18px;margin-bottom:20px;display:flex;align-items:flex-start;gap:12px;">
       <div style="font-size:18px;flex-shrink:0;">ℹ️</div>
       <div style="font-size:12px;color:var(--text3);font-weight:600;line-height:1.5;">
-        Média calculada com <strong style="color:var(--text2);">total histórico recebido ÷ total de pacientes pagos</strong> por convênio. Estimativa do mês zera todo dia 1º.
+        Média calculada com <strong style="color:var(--text2);">total histórico recebido ÷ total de pacientes pagos</strong> por convênio, <strong style="color:var(--text2);">separada por unidade</strong> — nunca mistura o valor de uma unidade com o de outra, mesmo para o mesmo convênio. Estimativa do mês zera todo dia 1º.
       </div>
     </div>
     <div class="lbl" style="margin-bottom:10px;">Configurações</div>
@@ -2939,7 +2941,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v77</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v78</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
