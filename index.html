@@ -18,6 +18,7 @@
   };
 
   const app = initializeApp(firebaseConfig);
+  window.fbApp = app;
   const auth = getAuth(app);
   const db = getFirestore(app, "ai-studio-07b01720-0a41-4e0a-89f7-93e327ec5916");
   const provider = new GoogleAuthProvider();
@@ -2937,8 +2938,62 @@ function renderConfig(){
     </button>
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-23-v75</div>
+
+    <div class="glass" style="padding:18px;margin-top:16px;border:1.5px solid rgba(46,200,102,0.35);background:rgba(46,200,102,0.05);">
+      <div style="font-size:12px;font-weight:900;color:var(--green2);margin-bottom:6px;">🔧 Recuperação temporária de conta</div>
+      <div style="font-size:11px;color:var(--text2);line-height:1.5;margin-bottom:12px;">
+        Se seus pacientes sumiram porque a conta de login mudou de ID, use este botão UMA VEZ pra trazer os dados da conta antiga pra esta conta atual. Não apaga nada da conta antiga.
+      </div>
+      <button onclick="migrarDadosDeContaAntiga()" style="width:100%;padding:13px;border-radius:14px;background:linear-gradient(135deg,#2ec866,#1f9c4e);color:#fff;border:none;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">
+        Recuperar dados da conta anterior
+      </button>
+    </div>
+
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-24-v76</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
+}
+
+// Função TEMPORÁRIA de recuperação — copia os dados de uma conta antiga
+// específica (com ID de usuário fixo, conhecido só pelo dono real dos dados)
+// pra conta atualmente logada. Não apaga nada da conta antiga; só lê de lá e
+// GRAVA (mescla) na conta atual. Feita pra ser removida depois de usada uma
+// vez, já que depende de uma exceção temporária nas regras do Firestore.
+async function migrarDadosDeContaAntiga(){
+  const ID_CONTA_ANTIGA = 'NifZw6kilLXLRKdaXIFLdYXVTL63';
+  if(!window.currentUser){ toast('Você precisa estar logado.','error'); return; }
+  if(window.currentUser.uid === ID_CONTA_ANTIGA){ toast('Você já está na conta antiga — nada pra migrar.','info'); return; }
+  if(!window.confirm(`Isso vai copiar os pacientes e hospitais da conta antiga (${ID_CONTA_ANTIGA.slice(0,10)}...) pra esta conta atual, mesclando com o que já existe aqui. Continuar?`)) return;
+
+  try{
+    toast('Buscando dados da conta antiga...','info');
+    const { getFirestore, doc, getDoc } = await import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js');
+    const db = getFirestore(window.fbApp, 'ai-studio-07b01720-0a41-4e0a-89f7-93e327ec5916');
+    const snap = await getDoc(doc(db, 'users', ID_CONTA_ANTIGA, 'data', 'medreconcile'));
+
+    if(!snap.exists()){ toast('Não encontrei dados na conta antiga.','error'); return; }
+    const dadosAntigos = snap.data();
+    const qtdPacientesAntigos = (dadosAntigos.patients||[]).length;
+    const qtdHospitaisAntigos = (dadosAntigos.hospitals||[]).length;
+
+    if(!qtdPacientesAntigos){ toast('A conta antiga não tem pacientes pra recuperar.','error'); return; }
+
+    // Mescla: mantém o que já existe na conta atual, adiciona o que veio de
+    // lá sem duplicar (por id do paciente/hospital).
+    const idsAtuais = new Set(state.patients.map(p=>p.id));
+    const pacientesNovos = (dadosAntigos.patients||[]).filter(p=>!idsAtuais.has(p.id));
+    const idsHospAtuais = new Set(state.hospitals.map(h=>h.id));
+    const hospitaisNovos = (dadosAntigos.hospitals||[]).filter(h=>!idsHospAtuais.has(h.id));
+
+    state.patients = [...state.patients, ...pacientesNovos];
+    state.hospitals = [...state.hospitals, ...hospitaisNovos];
+
+    saveState();
+    render();
+    toast(`✓ Recuperados ${pacientesNovos.length} pacientes e ${hospitaisNovos.length} hospitais!`,'success');
+  }catch(e){
+    console.error('Erro na migração:', e);
+    toast('Erro ao recuperar: '+(e.message||'motivo desconhecido')+'. Verifique se a regra temporária de acesso já foi publicada.','error');
+  }
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
 async function registrarBiometria(){
