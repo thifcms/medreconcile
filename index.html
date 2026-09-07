@@ -549,8 +549,6 @@ const state = {
   showMesDropdown: false,
   concilPreview: null,
   showManualConcil: false,
-  concilPeriodoInicio: '',
-  concilPeriodoFim: '',
   ultimaConcil: null, // snapshot dos pacientes antes da última conciliação
   showResetConfirm: false,
   expandId: null,
@@ -2213,13 +2211,8 @@ function renderAuditagem(){
           <div style="font-size:18px;font-weight:900;color:#fff;">${pendentes.length} <span style="font-size:12px;opacity:.8;">Pacientes</span></div>
         </div>
         <div style="background:rgba(255,255,255,0.12);border-radius:12px;padding:12px;margin-bottom:14px;">
-          <div style="font-size:10px;font-weight:800;color:rgba(255,255,255,.70);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Período do relatório (filtra por data de atendimento)</div>
-          <div style="display:flex;gap:8px;align-items:center;">
-            <input type="date" id="concil-inicio" value="${state.concilPeriodoInicio||''}" onchange="state.concilPeriodoInicio=this.value"
-              style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(255,255,255,0.90);font-size:13px;font-family:inherit;">
-            <span style="color:rgba(255,255,255,.7);font-size:12px;font-weight:700;">até</span>
-            <input type="date" id="concil-fim" value="${state.concilPeriodoFim||''}" onchange="state.concilPeriodoFim=this.value"
-              style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(255,255,255,0.90);font-size:13px;font-family:inherit;">
+          <div style="font-size:11px;color:rgba(255,255,255,.85);line-height:1.5;">
+            🔒 Busca em <strong>todos</strong> os pacientes pendentes, sem limite de período. Só dá baixa quando <strong>nome e número de atendimento batem juntos</strong> — nunca um sozinho.
           </div>
         </div>
         <div style="display:flex;gap:10px;">
@@ -2573,60 +2566,24 @@ async function handleRelatorio(input){
         return isNaN(n) ? null : n;
       };
 
-      // Filtra pendentes pelo período de data se definido
-      let pendsFiltrados = pends;
-      if(state.concilPeriodoInicio || state.concilPeriodoFim){
-        pendsFiltrados = pends.filter(p=>{
-          if(!p.data) return true;
-          const parts = p.data.split('-');
-          const dataP = parts.length===3 ? p.data : null;
-          if(!dataP) return true;
-          if(state.concilPeriodoInicio && dataP < state.concilPeriodoInicio) return false;
-          if(state.concilPeriodoFim && dataP > state.concilPeriodoFim) return false;
-          return true;
-        });
-        if(pendsFiltrados.length < pends.length)
-          toast(`Filtro de período: ${pendsFiltrados.length} de ${pends.length} pacientes no período`,'info');
-      }
-
+      // Busca em TODOS os pendentes, sem filtro de período — o período não
+      // restringe mais quem entra na busca. Em compensação, só considera
+      // encontrado quando NOME e NÚMERO DE ATENDIMENTO batem ao mesmo tempo
+      // na mesma linha da planilha — mais rígido que antes (que aceitava só
+      // um dos dois), pensado pra conferência em massa de mais de mil
+      // pacientes, onde falso positivo por coincidência de nome ou de
+      // atendimento sozinho é um risco real.
       const encontrarMatchExcel = (p) => {
-        // 1) Nº de atendimento é chave única
-        const porAtendimento = rowsFiltradasPorMedico.find(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento && p.atendimento));
-        if(porAtendimento) return porAtendimento;
-        // 2) Nome — pode haver múltiplas linhas com o mesmo nome (datas diferentes)
-        const candidatosPorNome = rowsFiltradasPorMedico.filter(r=>Object.values(r).map(v=>String(v||'')).some(v=>nn(v)===nn(p.nome)&&v.length>3));
-        if(candidatosPorNome.length===0) return null;
-        if(candidatosPorNome.length===1) return candidatosPorNome[0];
-        if(colData){
-          const porNomeEData = candidatosPorNome.find(r=>datasBatem(p.data, r[colData])===true);
-          if(porNomeEData) return porNomeEData;
-          console.warn(`[MedReconcile] "${p.nome}" aparece ${candidatosPorNome.length}x na planilha e nenhuma data bateu com o cadastro local (${p.data}). Pulando para evitar valor errado — confira manualmente.`);
-          return null;
-        }
-        // Sem coluna de data detectada na planilha: mantém comportamento antigo (pega a primeira)
-        console.warn(`[MedReconcile] "${p.nome}" aparece ${candidatosPorNome.length}x na planilha e não há coluna de data para desambiguar — usando a primeira ocorrência.`);
-        return candidatosPorNome[0];
+        if(!p.atendimento || !p.nome) return null;
+        return rowsFiltradasPorMedico.find(r => {
+          const valoresLinha = Object.values(r).map(v=>String(v||''));
+          const atendimentoBate = valoresLinha.includes(String(p.atendimento));
+          const nomeBate = valoresLinha.some(v => nn(v)===nn(p.nome) && v.length>3);
+          return atendimentoBate && nomeBate;
+        }) || null;
       };
 
-      // Valida se a data do ATENDIMENTO NA PLANILHA (não a data local cadastrada)
-      // está dentro do período selecionado — mesma proteção já aplicada no fluxo
-      // de PDF (v59): sem isso, um paciente pendente com data local dentro do
-      // período pode "pegar carona" numa linha da planilha cuja data real é de
-      // fora do período, só porque o nome ou atendimento coincidiu.
-      const dataDaLinhaDentroDoPeriodo = (rowMatch) => {
-        if(!state.concilPeriodoInicio && !state.concilPeriodoFim) return true;
-        if(!rowMatch || !colData) return true; // sem coluna de data na planilha, não dá pra checar
-        const dataLinha = normalizarDataParaComparacao(rowMatch[colData]);
-        if(!dataLinha) return true; // não deu pra normalizar, não bloqueia por segurança
-        if(state.concilPeriodoInicio && dataLinha < state.concilPeriodoInicio) return false;
-        if(state.concilPeriodoFim && dataLinha > state.concilPeriodoFim) return false;
-        return true;
-      };
-
-      const encontrados = pendsFiltrados.filter(p=>{
-        const m = encontrarMatchExcel(p);
-        return m && dataDaLinhaDentroDoPeriodo(m);
-      });
+      const encontrados = pends.filter(p=>encontrarMatchExcel(p));
       state.concilPreview = encontrados.map(p=>{
         // Tenta encontrar o valor pago na linha correspondente da planilha
         const rowMatch = encontrarMatchExcel(p);
@@ -2638,7 +2595,7 @@ async function handleRelatorio(input){
       if(colValor) toast(`Coluna de valor encontrada: "${colValor}"`, 'info');
       render();
       if(encontrados.length){
-        toast(`${encontrados.length} pacientes encontrados — confirme abaixo`,'success');
+        toast(`${encontrados.length} pacientes encontrados (nome + atendimento batendo) — confirme abaixo`,'success');
       } else {
         console.log('[MedReconcile] Diagnóstico — nenhum paciente encontrado:', {
           linhasNaPlanilha: rows.length,
@@ -2650,12 +2607,10 @@ async function handleRelatorio(input){
           colunaDataDetectada: colData,
           colunaValorDetectada: colValor,
           pacientesLocaisNoHospital: pends.length,
-          pacientesLocaisNoPeriodo: pendsFiltrados.length,
-          periodoSelecionado: {inicio: state.concilPeriodoInicio, fim: state.concilPeriodoFim},
           amostraPrimeiraLinhaLida: rowsFiltradasPorMedico[0],
-          amostraPrimeiroPendente: pendsFiltrados[0]
+          amostraPrimeiroPendente: pends[0]
         });
-        toast(`Nenhum paciente encontrado. Lidas ${rowsFiltradasPorMedico.length}${colMedico?' (após filtro de médico)':''} linhas da planilha, ${pendsFiltrados.length} pacientes pendentes no período — nenhum bateu. Veja o console para detalhes.`,'error');
+        toast(`Nenhum paciente encontrado. Lidas ${rowsFiltradasPorMedico.length}${colMedico?' (após filtro de médico)':''} linhas da planilha, ${pends.length} pacientes pendentes nesta unidade — nenhum bateu por nome + atendimento. Veja o console para detalhes.`,'error');
       }
     } catch(e) { toast('Erro ao ler planilha: '+(e?.message||'motivo desconhecido'),'error'); console.error('[MedReconcile] Erro no import de planilha:', e); }
     return;
@@ -2727,77 +2682,27 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
 
     const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 
-    let pendsFiltPdf = pends;
-    if(state.concilPeriodoInicio || state.concilPeriodoFim){
-      pendsFiltPdf = pends.filter(p=>{
-        if(!p.data) return true;
-        const parts = p.data.split('-');
-        const dataP = parts.length===3 ? p.data : null;
-        if(!dataP) return true;
-        if(state.concilPeriodoInicio && dataP < state.concilPeriodoInicio) return false;
-        if(state.concilPeriodoFim && dataP > state.concilPeriodoFim) return false;
-        return true;
-      });
-    }
-
-    // Cruza pacientes pendentes com os resultados do relatório.
-    // Prioridade: 1) nº de atendimento (é único, não precisa de data). 
-    // 2) nome + data batendo (desambigua quando o mesmo nome aparece 2x no relatório).
-    // 3) só nome, como último recurso (mantém comportamento antigo se não der pra comparar datas).
+    // Busca em TODOS os pendentes, sem filtro de período — só considera
+    // encontrado quando NOME e NÚMERO DE ATENDIMENTO batem ao mesmo tempo no
+    // mesmo registro do relatório. Mais rígido que antes (aceitava só um dos
+    // dois), pensado pra conferência em massa de mais de mil pacientes.
     function encontrarMatch(p){
-      // 1) Atendimento é chave única — se bater, não precisa checar mais nada
-      const porAtendimento = resultados.find(r=>r.numero_atendimento && p.atendimento && String(r.numero_atendimento)===String(p.atendimento));
-      if(porAtendimento) return porAtendimento;
-      // 2) Nome batendo — pode haver múltiplas ocorrências do mesmo nome no relatório (datas diferentes)
-      const candidatosPorNome = resultados.filter(r=>r.nome_paciente && p.nome && nn(r.nome_paciente)===nn(p.nome));
-      if(candidatosPorNome.length===0) return null;
-      if(candidatosPorNome.length===1){
-        // Mesmo com um candidato só, se as duas datas existirem e forem
-        // claramente diferentes, não aceita — evita que um paciente de um
-        // mês bata por coincidência de nome com alguém de outro mês no
-        // relatório. Só bloqueia quando dá pra comparar e a data bate errado
-        // (datasBatem null = não deu pra comparar, não bloqueia por segurança).
-        if(datasBatem(p.data, candidatosPorNome[0].data_atendimento) === false){
-          console.warn(`[MedReconcile] "${p.nome}" bateu por nome, mas a data do cadastro (${p.data}) não corresponde à data do relatório (${candidatosPorNome[0].data_atendimento}). Pulando para evitar cruzamento errado — confira manualmente.`);
-          return null;
-        }
-        return candidatosPorNome[0];
-      }
-      // Múltiplos candidatos com mesmo nome: desambigua pela data do atendimento
-      const porNomeEData = candidatosPorNome.find(r=>datasBatem(p.data, r.data_atendimento)===true);
-      if(porNomeEData) return porNomeEData;
-      // Nenhuma data bateu (ou não deu pra comparar) — não arrisca escolher errado entre múltiplos
-      console.warn(`[MedReconcile] "${p.nome}" aparece ${candidatosPorNome.length}x no relatório e nenhuma data bateu com o cadastro local (${p.data}). Pulando este paciente para evitar valor/data errado — confira manualmente.`);
-      return null;
+      if(!p.atendimento || !p.nome) return null;
+      return resultados.find(r =>
+        r.numero_atendimento && String(r.numero_atendimento)===String(p.atendimento) &&
+        r.nome_paciente && nn(r.nome_paciente)===nn(p.nome)
+      ) || null;
     }
 
-    // Valida se a data do ATENDIMENTO NO RELATÓRIO (não a data local cadastrada)
-    // está dentro do período selecionado. Sem isso, um paciente pendente com data
-    // local dentro do período pode "pegar carona" num registro do relatório cuja
-    // data de atendimento real é de outro mês (ex: relatório de fev-mai batendo
-    // com um filtro de junho, só porque o nº de atendimento ou nome coincidiu).
-    function dataDoMatchDentroDoPeriodo(match){
-      if(!state.concilPeriodoInicio && !state.concilPeriodoFim) return true; // sem filtro, aceita tudo
-      if(!match || !match.data_atendimento) return true; // sem data no relatório, não dá pra checar — mantém comportamento antigo
-      const dataMatch = normalizarDataParaComparacao(match.data_atendimento);
-      if(!dataMatch) return true; // não deu pra normalizar, não bloqueia por segurança
-      if(state.concilPeriodoInicio && dataMatch < state.concilPeriodoInicio) return false;
-      if(state.concilPeriodoFim && dataMatch > state.concilPeriodoFim) return false;
-      return true;
-    }
-
-    const encontrados = pendsFiltPdf.filter(p=>{
-      const match = encontrarMatch(p);
-      return match && dataDoMatchDentroDoPeriodo(match);
-    });
+    const encontrados = pends.filter(p=>encontrarMatch(p));
     state.concilPreview = encontrados.map(p=>{
       const match = encontrarMatch(p);
       const dataDoRelatorio = match && match.data_atendimento ? normalizarDataParaComparacao(match.data_atendimento) : null;
       return {...p, status:'PAGO', valorPago: (match && match.valor) ? match.valor : p.valor, dataAtendimentoRelatorio: dataDoRelatorio};
     });
     render();
-    if(encontrados.length) toast(`${encontrados.length} pacientes CLINICO encontrados — confirme abaixo`,'success');
-    else toast(`Relatório lido (${resultados.length} registros CLINICO), mas nenhum bateu com seus pacientes pendentes. Verifique nomes/atendimentos.`,'error');
+    if(encontrados.length) toast(`${encontrados.length} pacientes CLINICO encontrados (nome + atendimento batendo) — confirme abaixo`,'success');
+    else toast(`Relatório lido (${resultados.length} registros CLINICO), mas nenhum bateu nome + atendimento com seus pacientes pendentes. Verifique se os dois estão corretos.`,'error');
   } catch(e) {
     console.error('[MedReconcile] Erro ao processar relatório PDF:', e);
     let msg = 'Erro ao processar relatório: ' + (e?.message || 'motivo desconhecido');
@@ -3169,7 +3074,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v86</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v87</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
