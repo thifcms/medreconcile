@@ -2523,33 +2523,76 @@ async function handleRelatorio(input){
       const wb = XLSX.read(buf,{type:'array'});
       const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 
-      // Alguns relatórios têm um bloco de título/metadados antes da tabela
-      // de verdade — escaneia as primeiras 25 linhas em busca da que tem
-      // mais palavras-chave de cabeçalho batendo.
-      const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, defval:''});
+      // Processa TODAS as planilhas do arquivo, não só a primeira — alguns
+      // relatórios vêm com os dados divididos em mais de uma aba (ex: uma
+      // aba "principal" e outra com pacientes que ficaram de fora dela).
+      // Algumas dessas abas têm um bloco de título/metadados antes da tabela
+      // de verdade (por isso a busca da linha de cabeçalho pelas primeiras
+      // 25 linhas); outras não têm cabeçalho NENHUM, só dados direto na
+      // primeira linha — nesse caso, reaproveita o cabeçalho de uma aba
+      // anterior do mesmo arquivo, assumindo mesma estrutura de colunas.
       const HEADER_KEYWORDS = ['nome','paciente','patient','atendimento','protocolo','convenio','plano','operadora','data','medico','pagar','repasse','honorario','valor'];
-      let headerRowIdx = 0, bestScore = -1;
-      for(let i=0; i<Math.min(25, rawRows.length); i++){
-        const row = rawRows[i];
-        if(!Array.isArray(row)) continue;
-        const score = row.filter(cell => HEADER_KEYWORDS.some(kw => nn(cell).replace(/\s+/g,'').includes(kw))).length;
-        if(score > bestScore){ bestScore = score; headerRowIdx = i; }
+      let rows = [];
+      let ultimoHeaderReconhecido = null;
+      let abasSemCabecalhoProprio = [];
+
+      for(const sheetName of wb.SheetNames){
+        const rawRows = XLSX.utils.sheet_to_json(wb.Sheets[sheetName], {header:1, defval:''});
+        if(!rawRows.length) continue;
+
+        let headerRowIdx = 0, bestScore = -1;
+        for(let i=0; i<Math.min(25, rawRows.length); i++){
+          const row = rawRows[i];
+          if(!Array.isArray(row)) continue;
+          const score = row.filter(cell => HEADER_KEYWORDS.some(kw => nn(cell).replace(/\s+/g,'').includes(kw))).length;
+          if(score > bestScore){ bestScore = score; headerRowIdx = i; }
+        }
+
+        let uniqueHeaders, dadosAPartirDe;
+        if(bestScore >= 2){
+          // Achou um cabeçalho reconhecível nesta aba
+          const rawHeaders = rawRows[headerRowIdx].map(h => String(h||'').trim());
+          const seenHeaders = {};
+          uniqueHeaders = rawHeaders.map(h => {
+            if(!h) return h;
+            if(!seenHeaders[h]){ seenHeaders[h] = 1; return h; }
+            seenHeaders[h]++;
+            return `${h}_${seenHeaders[h]}`;
+          });
+          dadosAPartirDe = headerRowIdx + 1;
+          ultimoHeaderReconhecido = uniqueHeaders;
+        } else if(ultimoHeaderReconhecido){
+          // Não achou cabeçalho nesta aba — reaproveita o de uma aba anterior
+          uniqueHeaders = ultimoHeaderReconhecido;
+          dadosAPartirDe = 0; // sem cabeçalho aqui, toda linha já é dado
+          abasSemCabecalhoProprio.push(sheetName);
+        } else {
+          // Não achou cabeçalho aqui nem em nenhuma aba anterior — usa a
+          // primeira linha como cabeçalho mesmo (mantém comportamento antigo)
+          const rawHeaders = rawRows[0].map(h => String(h||'').trim());
+          const seenHeaders = {};
+          uniqueHeaders = rawHeaders.map(h => {
+            if(!h) return h;
+            if(!seenHeaders[h]){ seenHeaders[h] = 1; return h; }
+            seenHeaders[h]++;
+            return `${h}_${seenHeaders[h]}`;
+          });
+          dadosAPartirDe = 1;
+        }
+
+        const rowsDaAba = rawRows.slice(dadosAPartirDe)
+          .filter(r => Array.isArray(r) && r.some(c => String(c||'').trim() !== ''))
+          .map(r => {
+            const obj = {};
+            uniqueHeaders.forEach((h, idx) => { if(h) obj[h] = r[idx] !== undefined ? r[idx] : ''; });
+            return obj;
+          });
+        rows = rows.concat(rowsDaAba);
       }
-      const rawHeaders = rawRows[headerRowIdx].map(h => String(h||'').trim());
-      const seenHeaders = {};
-      const uniqueHeaders = rawHeaders.map(h => {
-        if(!h) return h;
-        if(!seenHeaders[h]){ seenHeaders[h] = 1; return h; }
-        seenHeaders[h]++;
-        return `${h}_${seenHeaders[h]}`;
-      });
-      const rows = rawRows.slice(headerRowIdx + 1)
-        .filter(r => Array.isArray(r) && r.some(c => String(c||'').trim() !== ''))
-        .map(r => {
-          const obj = {};
-          uniqueHeaders.forEach((h, idx) => { if(h) obj[h] = r[idx] !== undefined ? r[idx] : ''; });
-          return obj;
-        });
+
+      if(wb.SheetNames.length > 1){
+        toast(`Arquivo com ${wb.SheetNames.length} planilhas — ${rows.length} linhas lidas no total.${abasSemCabecalhoProprio.length ? ' ('+abasSemCabecalhoProprio.length+' sem cabeçalho próprio, reaproveitou o de outra aba)' : ''}`, 'info');
+      }
       
       // Detecta coluna de data na planilha (para desambiguar pacientes com nome repetido)
       const colsData = ['data','data atendimento','data do atendimento','date'];
@@ -3168,7 +3211,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v89</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v90</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
