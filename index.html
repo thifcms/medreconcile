@@ -2224,12 +2224,15 @@ function renderAuditagem(){
         </div>
         <div style="display:flex;gap:10px;">
           <label style="flex:1;padding:14px;background:#fff;color:#065F46;font-weight:900;font-size:14px;border:none;border-radius:16px;cursor:pointer;font-family:inherit;box-shadow:0 10px 24px rgba(0,0,0,0.12);display:flex;align-items:center;justify-content:center;gap:8px;">
-            📄 Carregar Relatório
+            📄📷 Carregar Relatório (arquivo ou foto)
             <input type="file" accept=".xlsx,.xls,.xlsb,.csv,.pdf,image/*" style="display:none;" onchange="handleRelatorio(this)">
           </label>
           <button onclick="showManualConcil()" style="padding:14px;background:rgba(255,255,255,0.22);color:#fff;font-weight:800;font-size:13px;border:1px solid rgba(255,255,255,0.30);border-radius:16px;cursor:pointer;font-family:inherit;white-space:nowrap;">
             ✍ Manual
           </button>
+        </div>
+        <div style="margin-top:8px;padding:10px 12px;background:rgba(255,255,255,0.14);border-radius:12px;font-size:11px;color:rgba(255,255,255,0.85);font-weight:600;line-height:1.4;">
+          💡 Se o PDF/planilha for muito grande ou pesado, a leitura pode falhar ou ficar incompleta. Tente tirar um print de tela (ou foto) da parte do relatório que te interessa — imagens menores e mais legíveis tendem a ser lidas com mais precisão.
         </div>
         ${state.ultimaConcil?`
         <button onclick="reverterConcil()" style="width:100%;margin-top:10px;padding:10px;background:rgba(239,68,68,0.20);border:1px solid rgba(239,68,68,0.35);border-radius:12px;color:#fca5a5;font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;">
@@ -2560,6 +2563,13 @@ async function handleRelatorio(input){
   }
   
   // PDF/Foto: envia para Audit AI
+  const isImagem = (file.type||'').startsWith('image/');
+  const limiteBytes = isImagem ? 4*1024*1024 : 8*1024*1024;
+  if(file.size > limiteBytes){
+    const limiteMB = Math.round(limiteBytes/1024/1024);
+    toast(`Arquivo muito grande (${Math.round(file.size/1024/1024)}MB, máx. ${limiteMB}MB). ${isImagem ? 'Reduza a resolução da câmera nas configurações, ou tire a foto mais de perto.' : 'Tire um print/foto da parte do relatório que te interessa, em vez de enviar o arquivo inteiro.'}`, 'error');
+    return;
+  }
   showProcessingOverlay('Analisando relatório com IA...');
   try {
     const base64 = await new Promise((res,rej)=>{
@@ -3036,7 +3046,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-08-25-v80</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v81</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
