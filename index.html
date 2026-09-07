@@ -2662,7 +2662,18 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
       // 2) Nome batendo — pode haver múltiplas ocorrências do mesmo nome no relatório (datas diferentes)
       const candidatosPorNome = resultados.filter(r=>r.nome_paciente && p.nome && nn(r.nome_paciente)===nn(p.nome));
       if(candidatosPorNome.length===0) return null;
-      if(candidatosPorNome.length===1) return candidatosPorNome[0];
+      if(candidatosPorNome.length===1){
+        // Mesmo com um candidato só, se as duas datas existirem e forem
+        // claramente diferentes, não aceita — evita que um paciente de um
+        // mês bata por coincidência de nome com alguém de outro mês no
+        // relatório. Só bloqueia quando dá pra comparar e a data bate errado
+        // (datasBatem null = não deu pra comparar, não bloqueia por segurança).
+        if(datasBatem(p.data, candidatosPorNome[0].data_atendimento) === false){
+          console.warn(`[MedReconcile] "${p.nome}" bateu por nome, mas a data do cadastro (${p.data}) não corresponde à data do relatório (${candidatosPorNome[0].data_atendimento}). Pulando para evitar cruzamento errado — confira manualmente.`);
+          return null;
+        }
+        return candidatosPorNome[0];
+      }
       // Múltiplos candidatos com mesmo nome: desambigua pela data do atendimento
       const porNomeEData = candidatosPorNome.find(r=>datasBatem(p.data, r.data_atendimento)===true);
       if(porNomeEData) return porNomeEData;
@@ -3069,7 +3080,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v82</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v83</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
