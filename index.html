@@ -2389,7 +2389,32 @@ function renderAuditagem(){
           📥 Exportar para Cobrança
         </button>
       </div>`;
-    })()}`;
+    })()}
+
+    <div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
+      <div style="font-weight:900;font-size:14px;color:var(--text);margin-bottom:3px;">📤 Exportar Pacientes por Período e Unidade</div>
+      <div style="font-size:12px;color:var(--text3);margin-bottom:14px;">Todos os pacientes (pagos e pendentes) da unidade e período escolhidos</div>
+      <div style="margin-bottom:10px;">
+        <select class="input" id="exp-periodo-hosp" style="margin-bottom:0;">
+          <option value="TODOS">Todos os hospitais</option>
+          ${state.hospitals.map(h=>`<option value="${h.id}" ${state.activeHosp===h.id?'selected':''}>${h.name}</option>`).join('')}
+        </select>
+      </div>
+      <div style="display:flex;gap:10px;margin-bottom:14px;">
+        <div style="flex:1;">
+          <div class="lbl" style="margin-bottom:5px;">De</div>
+          <input type="date" id="exp-periodo-inicio" class="input" style="margin-bottom:0;">
+        </div>
+        <div style="flex:1;">
+          <div class="lbl" style="margin-bottom:5px;">Até</div>
+          <input type="date" id="exp-periodo-fim" class="input" style="margin-bottom:0;">
+        </div>
+      </div>
+      <div style="font-size:10px;color:var(--text3);margin-bottom:12px;">💡 Deixe as datas em branco pra exportar todos os períodos.</div>
+      <button onclick="downloadPorPeriodoUnidade()" class="btn-p" style="width:100%;padding:13px;">
+        📥 Exportar
+      </button>
+    </div>`;
 }
 // Normaliza qualquer formato de data (DD/MM/AA, DD/MM/AAAA, YYYY-MM-DD) para YYYY-MM-DD.
 // Retorna null se não conseguir interpretar — nesse caso o matching cai para o fallback por nome.
@@ -3119,7 +3144,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v84</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v85</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
@@ -3431,6 +3456,64 @@ async function downloadInadimplencia(){
 
   XLSX.writeFile(wb, `Cobranca_${hospNome}_${today()}.xlsx`);
   toast(`Relatório exportado: ${inad.length} pacientes`,'success');
+}
+
+async function downloadPorPeriodoUnidade(){
+  const hospSel = document.getElementById('exp-periodo-hosp')?.value || 'TODOS';
+  const inicio = document.getElementById('exp-periodo-inicio')?.value || '';
+  const fim = document.getElementById('exp-periodo-fim')?.value || '';
+
+  if(inicio && fim && inicio > fim){
+    toast('A data inicial não pode ser depois da final','error');
+    return;
+  }
+
+  // Inclui pagos e pendentes — todos os pacientes da unidade/período escolhidos.
+  // Se um período for definido, só entram pacientes com data preenchida que
+  // caia dentro do intervalo (paciente sem data não pertence a nenhum
+  // período específico, por isso fica de fora quando há filtro de data).
+  let pats = state.patients.filter(p => hospSel==='TODOS' || p.hospId===hospSel);
+  if(inicio || fim){
+    pats = pats.filter(p => {
+      const dataP = normalizarDataParaComparacao(p.data);
+      if(!dataP) return false;
+      if(inicio && dataP < inicio) return false;
+      if(fim && dataP > fim) return false;
+      return true;
+    });
+  }
+
+  if(!pats.length){
+    toast('Nenhum paciente encontrado para esse período/unidade.','error');
+    return;
+  }
+
+  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+  const hospNome = hospSel==='TODOS' ? 'Todos' : (state.hospitals.find(h=>h.id===hospSel)?.name||'Todos');
+
+  const rows = pats.map(p => {
+    const hosp = state.hospitals.find(h=>h.id===p.hospId);
+    return {
+      'Paciente': p.nome || '',
+      'Nº Atendimento': p.atendimento || '',
+      'Convênio': p.convenio || '',
+      'Data': p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '',
+      'Hospital': hosp ? hosp.name : '',
+      'Status': p.status === 'PAGO' ? 'PAGO' : (p.status === 'RETORNO' ? 'RETORNO' : 'PENDENTE'),
+      'Valor': p.status === 'PAGO' ? (p.valorPago||p.valor||0) : '',
+      'Médico': state.profile.name || '',
+      'CRM': state.profile.crm || ''
+    };
+  });
+
+  const wb = XLSX.utils.book_new();
+  const ws = XLSX.utils.json_to_sheet(rows);
+  ws['!cols'] = [{wch:30},{wch:16},{wch:20},{wch:12},{wch:25},{wch:12},{wch:12},{wch:25},{wch:14}];
+  XLSX.utils.book_append_sheet(wb, ws, 'Pacientes');
+
+  const sufixoPeriodo = (inicio||fim) ? `_${inicio||'inicio'}_a_${fim||'hoje'}` : '';
+  XLSX.writeFile(wb, `Pacientes_${hospNome.replace(/[\/:*?\[\]\s]/g,'_')}${sufixoPeriodo}_${today()}.xlsx`);
+  toast(`Excel exportado: ${pats.length} pacientes`,'success');
 }
 function resetDriveConnection(){
   if(window.setDriveToken) window.setDriveToken(null);
