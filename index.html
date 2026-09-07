@@ -2284,6 +2284,16 @@ function renderAuditagem(){
         <button onclick="confirmarReverterPeriodo()" style="flex:1;padding:13px;border-radius:14px;background:var(--red);color:#fff;border:none;font-weight:800;font-size:13px;cursor:pointer;font-family:inherit;">Confirmar Reversão</button>`:''}
       </div>
     </div>`:''}
+    ${state.ultimaExtracaoIA && state.ultimaExtracaoIA.length>0?`
+    <div class="glass anim-up" style="padding:14px 18px;margin-bottom:16px;display:flex;justify-content:space-between;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="font-size:12px;color:var(--text3);font-weight:600;">
+        📋 A IA leu <strong style="color:var(--text2);">${state.ultimaExtracaoIA.length} registro${state.ultimaExtracaoIA.length!==1?'s':''}</strong> da última foto/PDF carregado.
+      </div>
+      <button onclick="exportarExtracaoIA()" style="padding:9px 16px;border-radius:12px;background:rgba(46,200,102,0.14);border:1px solid rgba(46,200,102,0.3);color:var(--green2);font-size:12px;font-weight:800;cursor:pointer;font-family:inherit;white-space:nowrap;">
+        📥 Baixar como Excel
+      </button>
+    </div>`:''}
+
     ${state.concilPreview?`
     <div class="glass anim-up" style="padding:20px;margin-bottom:16px;border-left:3px solid var(--green);">
       <div style="font-size:14px;font-weight:900;color:var(--green2);margin-bottom:4px;">✓ Pacientes encontrados no relatório</div>
@@ -2404,6 +2414,34 @@ function datasBatem(dataLocal, dataRelatorio){
   const b = normalizarDataParaComparacao(dataRelatorio);
   if(!a || !b) return null; // não deu pra comparar — indefinido, não é match nem descarte
   return a === b;
+}
+
+// Exporta o que a IA leu da última foto/PDF como um Excel de verdade — permite
+// conferir e corrigir manualmente qualquer erro de leitura, e serve como
+// registro confiável (sem depender de a IA "acertar" de novo se precisar
+// reprocessar).
+async function exportarExtracaoIA(){
+  const dados = state.ultimaExtracaoIA;
+  if(!dados || !dados.length){ toast('Nenhuma extração de IA pra exportar ainda. Carregue uma foto/PDF primeiro.','error'); return; }
+  try{
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+    const rows = dados.map(r => ({
+      'Paciente': r.nome_paciente || '',
+      'Atendimento': r.numero_atendimento || '',
+      'Convênio': r.convenio || '',
+      'Data': r.data_atendimento || '',
+      'Valor': r.valor != null ? r.valor : ''
+    }));
+    const ws = XLSX.utils.json_to_sheet(rows);
+    ws['!cols'] = [{wch:30},{wch:14},{wch:20},{wch:12},{wch:12}];
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, 'Leitura IA');
+    XLSX.writeFile(wb, `Leitura_IA_${today()}.xlsx`);
+    toast(`Excel gerado com ${dados.length} registros lidos pela IA`,'success');
+  }catch(e){
+    console.error('[MedReconcile] Erro ao exportar extração da IA:', e);
+    toast('Erro ao gerar o Excel: '+(e?.message||'motivo desconhecido'),'error');
+  }
 }
 
 async function handleRelatorio(input){
@@ -2635,6 +2673,7 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
       resultados = resultados.concat(resultadosDoArquivo);
     }
     console.log('[MedReconcile] Relatório(s) - registros CLINICO encontrados no total:', resultados.length);
+    state.ultimaExtracaoIA = resultados; // guarda o bruto, pra permitir exportar como Excel e conferir
 
     const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 
@@ -3080,7 +3119,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v83</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v84</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
