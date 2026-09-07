@@ -549,6 +549,8 @@ const state = {
   showMesDropdown: false,
   concilPreview: null,
   showManualConcil: false,
+  concilPeriodoInicio: '',
+  concilPeriodoFim: '',
   ultimaConcil: null, // snapshot dos pacientes antes da última conciliação
   showResetConfirm: false,
   expandId: null,
@@ -2233,8 +2235,16 @@ function renderAuditagem(){
           <div style="font-size:18px;font-weight:900;color:#fff;">${pendentes.length} <span style="font-size:12px;opacity:.8;">Pacientes</span></div>
         </div>
         <div style="background:rgba(255,255,255,0.12);border-radius:12px;padding:12px;margin-bottom:14px;">
+          <div style="font-size:10px;font-weight:800;color:rgba(255,255,255,.70);text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">Período do relatório (filtra por data de atendimento)</div>
+          <div style="display:flex;gap:8px;align-items:center;margin-bottom:10px;">
+            <input type="date" id="concil-inicio" value="${state.concilPeriodoInicio||''}" onchange="state.concilPeriodoInicio=this.value"
+              style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(255,255,255,0.90);font-size:13px;font-family:inherit;">
+            <span style="color:rgba(255,255,255,.7);font-size:12px;font-weight:700;">até</span>
+            <input type="date" id="concil-fim" value="${state.concilPeriodoFim||''}" onchange="state.concilPeriodoFim=this.value"
+              style="flex:1;padding:8px;border-radius:8px;border:none;background:rgba(255,255,255,0.90);font-size:13px;font-family:inherit;">
+          </div>
           <div style="font-size:11px;color:rgba(255,255,255,.85);line-height:1.5;">
-            🔒 Busca em <strong>todos</strong> os pacientes pendentes, sem limite de período. Só dá baixa quando <strong>nome e número de atendimento batem juntos</strong> — nunca um sozinho.
+            🔒 Só dá baixa quando <strong>nome e número de atendimento batem juntos</strong> — nunca um sozinho.
           </div>
         </div>
         <div style="display:flex;gap:10px;">
@@ -2605,7 +2615,39 @@ async function handleRelatorio(input){
         }) || null;
       };
 
-      const encontrados = pends.filter(p=>encontrarMatchExcel(p));
+      // Filtra pendentes pelo período de data se definido (usa a data
+      // cadastrada localmente do paciente)
+      let pendsFiltrados = pends;
+      if(state.concilPeriodoInicio || state.concilPeriodoFim){
+        pendsFiltrados = pends.filter(p=>{
+          const dataP = normalizarDataParaComparacao(p.data);
+          if(!dataP) return true; // sem data local, não bloqueia por segurança
+          if(state.concilPeriodoInicio && dataP < state.concilPeriodoInicio) return false;
+          if(state.concilPeriodoFim && dataP > state.concilPeriodoFim) return false;
+          return true;
+        });
+        if(pendsFiltrados.length < pends.length)
+          toast(`Filtro de período: ${pendsFiltrados.length} de ${pends.length} pacientes no período`,'info');
+      }
+
+      // Também valida a data da LINHA DA PLANILHA que bateu, não só a data
+      // local — evita que um paciente com data local dentro do período
+      // "pegue carona" numa linha cuja data real de atendimento é de outro
+      // mês, só porque nome+atendimento coincidiram.
+      const dataDaLinhaDentroDoPeriodo = (rowMatch) => {
+        if(!state.concilPeriodoInicio && !state.concilPeriodoFim) return true;
+        if(!rowMatch || !colData) return true;
+        const dataLinha = normalizarDataParaComparacao(rowMatch[colData]);
+        if(!dataLinha) return true;
+        if(state.concilPeriodoInicio && dataLinha < state.concilPeriodoInicio) return false;
+        if(state.concilPeriodoFim && dataLinha > state.concilPeriodoFim) return false;
+        return true;
+      };
+
+      const encontrados = pendsFiltrados.filter(p=>{
+        const m = encontrarMatchExcel(p);
+        return m && dataDaLinhaDentroDoPeriodo(m);
+      });
       state.concilPreview = encontrados.map(p=>{
         // Tenta encontrar o valor pago na linha correspondente da planilha
         const rowMatch = encontrarMatchExcel(p);
@@ -2629,10 +2671,12 @@ async function handleRelatorio(input){
           colunaDataDetectada: colData,
           colunaValorDetectada: colValor,
           pacientesLocaisNoHospital: pends.length,
+          pacientesLocaisNoPeriodo: pendsFiltrados.length,
+          periodoSelecionado: {inicio: state.concilPeriodoInicio, fim: state.concilPeriodoFim},
           amostraPrimeiraLinhaLida: rowsFiltradasPorMedico[0],
-          amostraPrimeiroPendente: pends[0]
+          amostraPrimeiroPendente: pendsFiltrados[0]
         });
-        toast(`Nenhum paciente encontrado. Lidas ${rowsFiltradasPorMedico.length}${colMedico?' (após filtro de médico)':''} linhas da planilha, ${pends.length} pacientes pendentes nesta unidade — nenhum bateu por nome + atendimento. Veja o console para detalhes.`,'error');
+        toast(`Nenhum paciente encontrado. Lidas ${rowsFiltradasPorMedico.length}${colMedico?' (após filtro de médico)':''} linhas da planilha, ${pendsFiltrados.length} pacientes pendentes no período — nenhum bateu por nome + atendimento. Veja o console para detalhes.`,'error');
       }
     } catch(e) { toast('Erro ao ler planilha: '+(e?.message||'motivo desconhecido'),'error'); console.error('[MedReconcile] Erro no import de planilha:', e); }
     return;
@@ -2704,10 +2748,9 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
 
     const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 
-    // Busca em TODOS os pendentes, sem filtro de período — só considera
-    // encontrado quando NOME e NÚMERO DE ATENDIMENTO batem ao mesmo tempo no
-    // mesmo registro do relatório. Mais rígido que antes (aceitava só um dos
-    // dois), pensado pra conferência em massa de mais de mil pacientes.
+    // Só considera encontrado quando NOME e NÚMERO DE ATENDIMENTO batem ao
+    // mesmo tempo no mesmo registro do relatório — mais rígido que antes
+    // (aceitava só um dos dois), pensado pra conferência em massa.
     function encontrarMatch(p){
       if(!p.atendimento || !p.nome) return null;
       return resultados.find(r =>
@@ -2716,7 +2759,36 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
       ) || null;
     }
 
-    const encontrados = pends.filter(p=>encontrarMatch(p));
+    // Filtra pendentes pelo período de data se definido (data local cadastrada)
+    let pendsFiltrados = pends;
+    if(state.concilPeriodoInicio || state.concilPeriodoFim){
+      pendsFiltrados = pends.filter(p=>{
+        const dataP = normalizarDataParaComparacao(p.data);
+        if(!dataP) return true;
+        if(state.concilPeriodoInicio && dataP < state.concilPeriodoInicio) return false;
+        if(state.concilPeriodoFim && dataP > state.concilPeriodoFim) return false;
+        return true;
+      });
+    }
+
+    // Também valida a data do ATENDIMENTO NO RELATÓRIO, não só a data local
+    // cadastrada — evita que um paciente pendente com data local dentro do
+    // período "pegue carona" num registro do relatório cuja data real de
+    // atendimento é de outro mês, só porque nome+atendimento coincidiram.
+    function dataDoMatchDentroDoPeriodo(match){
+      if(!state.concilPeriodoInicio && !state.concilPeriodoFim) return true;
+      if(!match || !match.data_atendimento) return true;
+      const dataMatch = normalizarDataParaComparacao(match.data_atendimento);
+      if(!dataMatch) return true;
+      if(state.concilPeriodoInicio && dataMatch < state.concilPeriodoInicio) return false;
+      if(state.concilPeriodoFim && dataMatch > state.concilPeriodoFim) return false;
+      return true;
+    }
+
+    const encontrados = pendsFiltrados.filter(p=>{
+      const match = encontrarMatch(p);
+      return match && dataDoMatchDentroDoPeriodo(match);
+    });
     state.concilPreview = encontrados.map(p=>{
       const match = encontrarMatch(p);
       const dataDoRelatorio = match && match.data_atendimento ? normalizarDataParaComparacao(match.data_atendimento) : null;
@@ -2724,7 +2796,7 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
     });
     render();
     if(encontrados.length) toast(`${encontrados.length} pacientes CLINICO encontrados (nome + atendimento batendo) — confirme abaixo`,'success');
-    else toast(`Relatório lido (${resultados.length} registros CLINICO), mas nenhum bateu nome + atendimento com seus pacientes pendentes. Verifique se os dois estão corretos.`,'error');
+    else toast(`Relatório lido (${resultados.length} registros CLINICO), mas nenhum bateu nome + atendimento com seus pacientes pendentes no período. Verifique se os dois estão corretos.`,'error');
   } catch(e) {
     console.error('[MedReconcile] Erro ao processar relatório PDF:', e);
     let msg = 'Erro ao processar relatório: ' + (e?.message || 'motivo desconhecido');
@@ -3096,7 +3168,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v88</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v89</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
