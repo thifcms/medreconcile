@@ -2526,14 +2526,6 @@ async function handleRelatorio(input){
           return obj;
         });
       
-      // Detecta coluna de valor pago na planilha
-      const colsValor = ['r$ a pagar','a pagar','rapagar','valor pago','vl.repasse','vl repasse','vlrepasse','repasse','valor repasse','honorarios','honorários','vlr pago','vlr.pago'];
-      const detectarColValor = (row) => {
-        const keys = Object.keys(row);
-        return keys.find(k => colsValor.includes(nn(k)));
-      };
-      const colValor = rows.length ? detectarColValor(rows[0]) : null;
-
       // Detecta coluna de data na planilha (para desambiguar pacientes com nome repetido)
       const colsData = ['data','data atendimento','data do atendimento','date'];
       const detectarColData = (row) => {
@@ -2541,6 +2533,37 @@ async function handleRelatorio(input){
         return keys.find(k => colsData.includes(nn(k)));
       };
       const colData = rows.length ? detectarColData(rows[0]) : null;
+
+      // Detecta coluna de médico — relatórios de unidade inteira costumam
+      // trazer TODOS os médicos misturados numa planilha só. Se essa coluna
+      // existir e o médico estiver cadastrado no perfil, filtra só as linhas
+      // do médico logado, evitando ruído e falso positivo com pacientes de
+      // outros médicos.
+      const colsMedico = ['medico','médico','medico responsavel','médico responsável','profissional','solicitante'];
+      const detectarColMedico = (row) => {
+        const keys = Object.keys(row);
+        return keys.find(k => colsMedico.includes(nn(k)));
+      };
+      const colMedico = rows.length ? detectarColMedico(rows[0]) : null;
+      let rowsFiltradasPorMedico = rows;
+      if(colMedico){
+        const nomeMedicoLocal = nn((state.profile?.name||'').replace(/^(dr\.?|dra\.?)\s+/i,'').trim());
+        if(nomeMedicoLocal){
+          const antesDoFiltro = rows.length;
+          rowsFiltradasPorMedico = rows.filter(r => nn(r[colMedico]).length > 0 && nn(r[colMedico]).includes(nomeMedicoLocal));
+          toast(`Planilha tem vários médicos — filtrado só "${state.profile.name}": ${rowsFiltradasPorMedico.length} de ${antesDoFiltro} linhas.`, 'info');
+        } else {
+          toast('Esta planilha tem uma coluna de médico, mas seu nome não está cadastrado no perfil — não deu pra filtrar. Confira os resultados com atenção.', 'error');
+        }
+      }
+      
+      // Detecta coluna de valor pago na planilha
+      const colsValor = ['r$ a pagar','a pagar','rapagar','valor pago','vl.repasse','vl repasse','vlrepasse','repasse','valor repasse','honorarios','honorários','vlr pago','vlr.pago'];
+      const detectarColValor = (row) => {
+        const keys = Object.keys(row);
+        return keys.find(k => colsValor.includes(nn(k)));
+      };
+      const colValor = rows.length ? detectarColValor(rows[0]) : null;
       
       // Função para extrair valor numérico da célula
       const extrairValor = (v) => {
@@ -2568,10 +2591,10 @@ async function handleRelatorio(input){
 
       const encontrarMatchExcel = (p) => {
         // 1) Nº de atendimento é chave única
-        const porAtendimento = rows.find(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento && p.atendimento));
+        const porAtendimento = rowsFiltradasPorMedico.find(r=>Object.values(r).map(v=>String(v||'')).some(v=>v===p.atendimento && p.atendimento));
         if(porAtendimento) return porAtendimento;
         // 2) Nome — pode haver múltiplas linhas com o mesmo nome (datas diferentes)
-        const candidatosPorNome = rows.filter(r=>Object.values(r).map(v=>String(v||'')).some(v=>nn(v)===nn(p.nome)&&v.length>3));
+        const candidatosPorNome = rowsFiltradasPorMedico.filter(r=>Object.values(r).map(v=>String(v||'')).some(v=>nn(v)===nn(p.nome)&&v.length>3));
         if(candidatosPorNome.length===0) return null;
         if(candidatosPorNome.length===1) return candidatosPorNome[0];
         if(colData){
@@ -2619,6 +2642,8 @@ async function handleRelatorio(input){
       } else {
         console.log('[MedReconcile] Diagnóstico — nenhum paciente encontrado:', {
           linhasNaPlanilha: rows.length,
+          linhasAposFiltroDeMedico: rowsFiltradasPorMedico.length,
+          colunaMedicoDetectada: colMedico,
           colunaNomeDetectada: colNome,
           colunaAtendimentoDetectada: colAtd,
           colunaConvenioDetectada: colConv,
@@ -2627,10 +2652,10 @@ async function handleRelatorio(input){
           pacientesLocaisNoHospital: pends.length,
           pacientesLocaisNoPeriodo: pendsFiltrados.length,
           periodoSelecionado: {inicio: state.concilPeriodoInicio, fim: state.concilPeriodoFim},
-          amostraPrimeiraLinhaLida: rows[0],
+          amostraPrimeiraLinhaLida: rowsFiltradasPorMedico[0],
           amostraPrimeiroPendente: pendsFiltrados[0]
         });
-        toast(`Nenhum paciente encontrado. Lidas ${rows.length} linhas da planilha, ${pendsFiltrados.length} pacientes pendentes no período — nenhum bateu. Veja o console para detalhes.`,'error');
+        toast(`Nenhum paciente encontrado. Lidas ${rowsFiltradasPorMedico.length}${colMedico?' (após filtro de médico)':''} linhas da planilha, ${pendsFiltrados.length} pacientes pendentes no período — nenhum bateu. Veja o console para detalhes.`,'error');
       }
     } catch(e) { toast('Erro ao ler planilha: '+(e?.message||'motivo desconhecido'),'error'); console.error('[MedReconcile] Erro no import de planilha:', e); }
     return;
@@ -3144,7 +3169,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v85</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v86</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
