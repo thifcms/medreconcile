@@ -557,6 +557,7 @@ const state = {
   modalPatient: null,
   editId: null,
   mesFiltro: 'TODOS',
+  buscaPacienteNome: '',
   batchPreview: null,
   photoQueue: [], // fila de fotos aguardando análise
   photoQueueFailed: [], // fotos que falharam e podem ser retentadas
@@ -1248,7 +1249,13 @@ function renderAtendimentos(){
   if(!state.activeHosp) return `<div class="glass anim-up" style="padding:48px;text-align:center;"><div style="font-size:48px;margin-bottom:12px;">🏢</div><div style="font-weight:800;color:var(--text2);">Nenhuma unidade ativa</div><div style="font-size:13px;color:var(--text3);margin-top:6px;">Selecione um hospital na aba Início.</div></div>`;
   const all = state.patients.filter(p=>p.hospId===state.activeHosp);
   const MESES = ['TODOS',...Array.from(new Set(all.map(a=>{if(!a.data)return null;const parts=a.data.split('-');if(parts.length===3){return`${parts[1]}/${parts[0]}`;}const d=parseDataLocal(a.data);return`${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;})).values()).filter(Boolean)].sort();
-  const filtered = state.mesFiltro==='TODOS' ? all : all.filter(a=>{if(!a.data)return false;const parts=a.data.split('-');let mm,yyyy;if(parts.length===3){mm=parts[1];yyyy=parts[0];}else{const d=parseDataLocal(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}return`${mm}/${yyyy}`===state.mesFiltro;});
+  const filtered = (state.mesFiltro==='TODOS' ? all : all.filter(a=>{if(!a.data)return false;const parts=a.data.split('-');let mm,yyyy;if(parts.length===3){mm=parts[1];yyyy=parts[0];}else{const d=parseDataLocal(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}return`${mm}/${yyyy}`===state.mesFiltro;}))
+    .filter(a=>{
+      if(!state.buscaPacienteNome) return true;
+      const termo = state.buscaPacienteNome.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').trim();
+      const nomeP = String(a.nome||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'');
+      return nomeP.includes(termo);
+    });
   const pendentes = filtered.filter(a=>a.status!=='PAGO'&&a.status!=='RETORNO');
   const pagos = filtered.filter(a=>a.status==='PAGO');
   const tPend = pendentes.reduce((s,a)=>s+(a.valor||0),0);
@@ -1444,6 +1451,14 @@ function renderAtendimentos(){
         font-family:inherit;cursor:pointer;">✓ Pagos</button>
       <button onclick="state.showRelatorio=!state.showRelatorio;render();" style="padding:11px 14px;font-size:13px;border-radius:14px;white-space:nowrap;
         background:linear-gradient(135deg,rgba(255,255,255,0.58),rgba(255,255,255,0.38));color:${state.showRelatorio?'var(--green2)':'var(--lead)'};border:1px solid rgba(255,255,255,0.70);font-weight:700;font-family:inherit;cursor:pointer;">📊</button>
+    </div>
+    <div style="position:relative;margin-bottom:14px;">
+      <input type="text" id="busca-paciente-nome" value="${state.buscaPacienteNome||''}" placeholder="🔎 Buscar paciente por nome..."
+        oninput="state.buscaPacienteNome=this.value;render();setTimeout(()=>{const el=document.getElementById('busca-paciente-nome');if(el){el.focus();el.selectionStart=el.selectionEnd=el.value.length;}},0);"
+        style="width:100%;padding:11px 14px;font-size:13px;border-radius:14px;border:1px solid rgba(255,255,255,0.70);
+        background:linear-gradient(135deg,rgba(255,255,255,0.58),rgba(255,255,255,0.38));color:var(--lead);font-weight:700;font-family:inherit;">
+      ${state.buscaPacienteNome?`
+      <button onclick="state.buscaPacienteNome='';render();" style="position:absolute;right:10px;top:50%;transform:translateY(-50%);background:none;border:none;color:var(--text3);font-size:16px;cursor:pointer;padding:4px;">✕</button>`:''}
     </div>
     ${(()=>{
       const retornos = all.filter(a=>a.status==='RETORNO');
@@ -3211,7 +3226,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v90</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v91</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
