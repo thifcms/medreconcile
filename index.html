@@ -578,15 +578,37 @@ const fmtDt  = d => {
   return new Date(d).toLocaleDateString('pt-BR');
 };
 const today  = () => new Date().toISOString().split('T')[0];
+
+// Datas guardadas no app são sempre 'YYYY-MM-DD' (sem hora/fuso). Usar
+// `new Date('YYYY-MM-DD')` é uma armadilha clássica do JavaScript: essa
+// string é interpretada como MEIA-NOITE EM UTC, mas ao exibir/comparar com
+// métodos como toLocaleDateString/getFullYear/getMonth, o navegador converte
+// pro fuso LOCAL — no Brasil (UTC-3), isso empurra a data um dia pra trás.
+// As duas funções abaixo evitam esse problema por completo: nunca criam um
+// Date a partir da string ISO sem antes decompor os números manualmente.
+function parseDataLocal(dataStr){
+  if(!dataStr) return null;
+  const m = String(dataStr).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return null;
+  const [,ano,mes,dia] = m;
+  return new Date(parseInt(ano,10), parseInt(mes,10)-1, parseInt(dia,10)); // construtor local, sem UTC
+}
+function formatarDataBR(dataStr){
+  if(!dataStr) return '';
+  const m = String(dataStr).trim().match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if(!m) return '';
+  const [,ano,mes,dia] = m;
+  return `${dia}/${mes}/${ano}`;
+}
 const uid    = () => Date.now().toString(36) + Math.random().toString(36).slice(2);
-function diasAberto(data){ if(!data) return 0; return Math.floor((new Date()-new Date(data))/(1000*60*60*24)); }
+function diasAberto(data){ if(!data) return 0; return Math.floor((new Date()-parseDataLocal(data))/(1000*60*60*24)); }
 
 // ── PICKER DE MÊS/ANO (estilo roleta) ───────────────────────────────────────
 const NOMES_MESES = ['Janeiro','Fevereiro','Março','Abril','Maio','Junho','Julho','Agosto','Setembro','Outubro','Novembro','Dezembro'];
 function openMesPicker(target){
   const all = state.patients.filter(p=>p.hospId===state.activeHosp);
   const base = target==='pagos' ? all.filter(a=>a.status==='PAGO') : all;
-  const anosDisponiveis = Array.from(new Set(base.filter(a=>a.data).map(a=>new Date(a.data).getFullYear()))).sort();
+  const anosDisponiveis = Array.from(new Set(base.filter(a=>a.data).map(a=>parseDataLocal(a.data).getFullYear()))).sort();
   const atual = target==='pagos' ? state.pagosFiltro : state.mesFiltro;
   let mesIni = null, anoIni = anosDisponiveis.length ? anosDisponiveis[anosDisponiveis.length-1] : new Date().getFullYear();
   if(atual && atual!=='TODOS'){
@@ -638,7 +660,7 @@ function renderMesPickerModal(){
   const base = state.mesPickerTarget==='pagos' ? all.filter(a=>a.status==='PAGO') : all;
   const anosDisponiveis = Array.from(new Set(base.filter(a=>a.data).map(a=>{
     const parts=a.data.split('-');
-    return parts.length===3?parseInt(parts[0]):new Date(a.data).getFullYear();
+    return parts.length===3?parseInt(parts[0]):parseDataLocal(a.data).getFullYear();
   }))).sort();
   const anos = anosDisponiveis.length ? anosDisponiveis : [new Date().getFullYear()];
   const mesSel = state.mesPickerTempMes;
@@ -1041,7 +1063,7 @@ function renderUnidades(){
     if(!a.data) return false;
     const parts=a.data.split('-');
     if(parts.length===3) return parts[1]===mmAtual && parts[0]===aaaAtual;
-    const d=new Date(a.data);
+    const d=parseDataLocal(a.data);
     return String(d.getMonth()+1).padStart(2,'0')===mmAtual && String(d.getFullYear())===aaaAtual;
   });
 
@@ -1223,8 +1245,8 @@ function activateHosp(id){
 function renderAtendimentos(){
   if(!state.activeHosp) return `<div class="glass anim-up" style="padding:48px;text-align:center;"><div style="font-size:48px;margin-bottom:12px;">🏢</div><div style="font-weight:800;color:var(--text2);">Nenhuma unidade ativa</div><div style="font-size:13px;color:var(--text3);margin-top:6px;">Selecione um hospital na aba Início.</div></div>`;
   const all = state.patients.filter(p=>p.hospId===state.activeHosp);
-  const MESES = ['TODOS',...Array.from(new Set(all.map(a=>{if(!a.data)return null;const parts=a.data.split('-');if(parts.length===3){return`${parts[1]}/${parts[0]}`;}const d=new Date(a.data);return`${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;})).values()).filter(Boolean)].sort();
-  const filtered = state.mesFiltro==='TODOS' ? all : all.filter(a=>{if(!a.data)return false;const parts=a.data.split('-');let mm,yyyy;if(parts.length===3){mm=parts[1];yyyy=parts[0];}else{const d=new Date(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}return`${mm}/${yyyy}`===state.mesFiltro;});
+  const MESES = ['TODOS',...Array.from(new Set(all.map(a=>{if(!a.data)return null;const parts=a.data.split('-');if(parts.length===3){return`${parts[1]}/${parts[0]}`;}const d=parseDataLocal(a.data);return`${String(d.getMonth()+1).padStart(2,'0')}/${d.getFullYear()}`;})).values()).filter(Boolean)].sort();
+  const filtered = state.mesFiltro==='TODOS' ? all : all.filter(a=>{if(!a.data)return false;const parts=a.data.split('-');let mm,yyyy;if(parts.length===3){mm=parts[1];yyyy=parts[0];}else{const d=parseDataLocal(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}return`${mm}/${yyyy}`===state.mesFiltro;});
   const pendentes = filtered.filter(a=>a.status!=='PAGO'&&a.status!=='RETORNO');
   const pagos = filtered.filter(a=>a.status==='PAGO');
   const tPend = pendentes.reduce((s,a)=>s+(a.valor||0),0);
@@ -1298,7 +1320,7 @@ function renderAtendimentos(){
         const isRetorno = state.patients.some(px=>{
           const pxNome = (px.nome||'').toLowerCase().trim();
           const pxConv = (px.convenio||'').toLowerCase().trim();
-          const pxData = px.data ? new Date(px.data) : null;
+          const pxData = px.data ? parseDataLocal(px.data) : null;
           return pxNome===nomeNorm && pxConv===convNorm && pxData && pxData>=limite && pxData<=hoje;
         });
         if(isRetorno && !p.hasOwnProperty('isRetorno')) { state.batchPreview[i].isRetorno = true; state.batchPreview[i]._retornoDetectado = true; }
@@ -1389,7 +1411,7 @@ function renderAtendimentos(){
         if(!a.data) return false;
         const parts=a.data.split('-');
         if(parts.length===3) return parts[1]===mmAtual && parts[0]===aaaAtual;
-        const d=new Date(a.data);
+        const d=parseDataLocal(a.data);
         return String(d.getMonth()+1).padStart(2,'0')===mmAtual && String(d.getFullYear())===aaaAtual;
       });
       if(patsMesAtual.length===0) return '';
@@ -1594,7 +1616,7 @@ function renderPagosView(){
       const parts=a.data.split('-');
       let mm,yyyy;
       if(parts.length===3){mm=parts[1];yyyy=parts[0];}
-      else{const d=new Date(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}
+      else{const d=parseDataLocal(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}
       return `${mm}/${yyyy}`===state.pagosFiltro;
     });
   }
@@ -2360,7 +2382,7 @@ function renderAuditagem(){
 
     ${(()=>{
       const cutoff=new Date();cutoff.setDate(cutoff.getDate()-30);
-      const inad=(state.activeHosp?state.patients.filter(p=>p.hospId===state.activeHosp):state.patients).filter(p=>p.status!=='PAGO'&&p.status!=='RETORNO'&&p.data&&new Date(p.data)<=cutoff);
+      const inad=(state.activeHosp?state.patients.filter(p=>p.hospId===state.activeHosp):state.patients).filter(p=>p.status!=='PAGO'&&p.status!=='RETORNO'&&p.data&&parseDataLocal(p.data)<=cutoff);
       return `<div class="glass anim-up" style="padding:20px;margin-bottom:20px;">
         <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;">
           <div>
@@ -2856,7 +2878,7 @@ function renderConfig(){
     const parts = a.data.split('-');
     let mm, yyyy;
     if(parts.length===3){mm=parts[1];yyyy=parts[0];}
-    else{const d=new Date(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}
+    else{const d=parseDataLocal(a.data);mm=String(d.getMonth()+1).padStart(2,'0');yyyy=String(d.getFullYear());}
     return `${mm}/${yyyy}` === mesAtual;
   });
 
@@ -3074,7 +3096,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v87</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v88</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
@@ -3235,7 +3257,7 @@ async function buildMedReconcileWorkbook(XLSX){
       'Paciente': p.nome || '',
       'Nº Atendimento': p.atendimento || '',
       'Convênio': p.convenio || '',
-      'Data Atendimento': p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '',
+      'Data Atendimento': formatarDataBR(p.data),
       'Status': p.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
       'Médico': state.profile.name || '',
       'CRM': state.profile.crm || ''
@@ -3260,7 +3282,7 @@ async function buildMedReconcileWorkbook(XLSX){
       'Paciente': p.nome || '',
       'Nº Atendimento': p.atendimento || '',
       'Convênio': p.convenio || '',
-      'Data Atendimento': p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '',
+      'Data Atendimento': formatarDataBR(p.data),
       'Status': p.status === 'PAGO' ? 'PAGO' : 'PENDENTE',
     };
   });
@@ -3293,7 +3315,7 @@ async function downloadInadimplencia(){
   let inad = state.patients.filter(p => {
     if(p.status==='PAGO') return false;
     if(!p.data) return false;
-    if(new Date(p.data) > cutoff) return false;
+    if(parseDataLocal(p.data) > cutoff) return false;
     if(hospSel!=='TODOS' && p.hospId!==hospSel) return false;
     return true;
   });
@@ -3327,8 +3349,8 @@ async function downloadInadimplencia(){
 
   inad.forEach(p => {
     const hosp = state.hospitals.find(h=>h.id===p.hospId);
-    const dias = Math.floor((new Date()-new Date(p.data))/(1000*60*60*24));
-    const dtBR = p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '';
+    const dias = Math.floor((new Date()-parseDataLocal(p.data))/(1000*60*60*24));
+    const dtBR = formatarDataBR(p.data);
     rows.push([
       p.nome,
       p.atendimento,
@@ -3357,8 +3379,8 @@ async function downloadInadimplencia(){
         'Paciente': p.nome||'',
         'Nº Atendimento': p.atendimento||'',
         'Convênio': p.convenio||'',
-        'Data Inclusão': p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '',
-        'Dias em Aberto': Math.floor((new Date()-new Date(p.data))/(1000*60*60*24))+' dias',
+        'Data Inclusão': formatarDataBR(p.data),
+        'Dias em Aberto': Math.floor((new Date()-parseDataLocal(p.data))/(1000*60*60*24))+' dias',
         'Status': 'PENDENTE',
         'Médico': state.profile.name||'',
         'CRM': state.profile.crm||''
@@ -3373,8 +3395,8 @@ async function downloadInadimplencia(){
       'Paciente': p.nome||'',
       'Nº Atendimento': p.atendimento||'',
       'Convênio': p.convenio||'',
-      'Data Inclusão': p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '',
-      'Dias em Aberto': Math.floor((new Date()-new Date(p.data))/(1000*60*60*24))+' dias',
+      'Data Inclusão': formatarDataBR(p.data),
+      'Dias em Aberto': Math.floor((new Date()-parseDataLocal(p.data))/(1000*60*60*24))+' dias',
       'Status': 'PENDENTE',
       'Médico': state.profile.name||'',
       'CRM': state.profile.crm||''
@@ -3427,7 +3449,7 @@ async function downloadPorPeriodoUnidade(){
       'Paciente': p.nome || '',
       'Nº Atendimento': p.atendimento || '',
       'Convênio': p.convenio || '',
-      'Data': p.data ? new Date(p.data).toLocaleDateString('pt-BR') : '',
+      'Data': formatarDataBR(p.data),
       'Hospital': hosp ? hosp.name : '',
       'Status': p.status === 'PAGO' ? 'PAGO' : (p.status === 'RETORNO' ? 'RETORNO' : 'PENDENTE'),
       'Valor': p.status === 'PAGO' ? (p.valorPago||p.valor||0) : '',
