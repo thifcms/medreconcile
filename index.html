@@ -2225,7 +2225,7 @@ function renderAuditagem(){
         <div style="display:flex;gap:10px;">
           <label style="flex:1;padding:14px;background:#fff;color:#065F46;font-weight:900;font-size:14px;border:none;border-radius:16px;cursor:pointer;font-family:inherit;box-shadow:0 10px 24px rgba(0,0,0,0.12);display:flex;align-items:center;justify-content:center;gap:8px;">
             📄📷 Carregar Relatório (arquivo ou foto)
-            <input type="file" accept=".xlsx,.xls,.xlsb,.csv,.pdf,image/*" style="display:none;" onchange="handleRelatorio(this)">
+            <input type="file" accept=".xlsx,.xls,.xlsb,.csv,.pdf,image/*" multiple style="display:none;" onchange="handleRelatorio(this)">
           </label>
           <button onclick="showManualConcil()" style="padding:14px;background:rgba(255,255,255,0.22);color:#fff;font-weight:800;font-size:13px;border:1px solid rgba(255,255,255,0.30);border-radius:16px;cursor:pointer;font-family:inherit;white-space:nowrap;">
             ✍ Manual
@@ -2409,6 +2409,17 @@ function datasBatem(dataLocal, dataRelatorio){
 async function handleRelatorio(input){
   const file = input.files[0];
   if(!file) return;
+
+  if(input.files.length > 1){
+    const temPlanilha = Array.from(input.files).some(f => {
+      const n = f.name.toLowerCase();
+      return n.endsWith('.xlsx')||n.endsWith('.xls')||n.endsWith('.xlsb')||n.endsWith('.csv');
+    });
+    if(temPlanilha){
+      toast('Selecione apenas UMA planilha por vez (várias fotos/PDFs podem ser combinados, mas planilha não).','error');
+      return;
+    }
+  }
   
   const pends = state.patients.filter(p=>p.hospId===state.activeHosp&&p.status!=='PAGO'&&p.status!=='RETORNO');
   if(!pends.length){toast('Nenhum paciente pendente para conciliar','info');return;}
@@ -2562,31 +2573,33 @@ async function handleRelatorio(input){
     return;
   }
   
-  // PDF/Foto: envia para Audit AI
-  const isImagem = (file.type||'').startsWith('image/');
-  const limiteBytes = isImagem ? 4*1024*1024 : 8*1024*1024;
-  if(file.size > limiteBytes){
-    const limiteMB = Math.round(limiteBytes/1024/1024);
-    toast(`Arquivo muito grande (${Math.round(file.size/1024/1024)}MB, máx. ${limiteMB}MB). ${isImagem ? 'Reduza a resolução da câmera nas configurações, ou tire a foto mais de perto.' : 'Tire um print/foto da parte do relatório que te interessa, em vez de enviar o arquivo inteiro.'}`, 'error');
-    return;
-  }
-  showProcessingOverlay('Analisando relatório com IA...');
-  try {
+  // PDF/Foto: envia para Audit AI — suporta múltiplos arquivos (várias fotos
+  // de trechos diferentes de um relatório grande), processando um de cada vez
+  // e juntando os resultados antes de cruzar com os pacientes pendentes.
+  const arquivos = Array.from(input.files);
+  const csv = pends.map(p=>`${p.nome} | Atendimento: ${p.atendimento}`).join('\n');
+  const nomeMedico = (state.profile?.name||'').replace(/^(dr\.?|dra\.?)\s+/i,'').trim();
+
+  async function extrairArquivo(arq){
+    const isImagemArq = (arq.type||'').startsWith('image/');
+    const limiteBytesArq = isImagemArq ? 4*1024*1024 : 8*1024*1024;
+    if(arq.size > limiteBytesArq){
+      const limiteMB = Math.round(limiteBytesArq/1024/1024);
+      throw new Error(`"${arq.name}" muito grande (${Math.round(arq.size/1024/1024)}MB, máx. ${limiteMB}MB). ${isImagemArq ? 'Reduza a resolução da câmera nas configurações.' : 'Tire um print/foto da parte do relatório que te interessa.'}`);
+    }
     const base64 = await new Promise((res,rej)=>{
       const r = new FileReader();
       r.onload = ()=>res(r.result.split(',')[1]);
       r.onerror = rej;
-      r.readAsDataURL(file);
+      r.readAsDataURL(arq);
     });
-    const csv = pends.map(p=>`${p.nome} | Atendimento: ${p.atendimento}`).join('\n');
-    const nomeMedico = (state.profile?.name||'').replace(/^(dr\.?|dra\.?)\s+/i,'').trim();
     const response = await fetch(`${AI_URL}${AI_ROUTES.extract}`, {
       method: 'POST',
       headers: {'Accept':'application/json','Content-Type':'application/json','x-api-key':AI_KEY},
       body: JSON.stringify({
         fileBase64: base64,
-        filename: file.name || 'relatorio.pdf',
-        mimeType: file.type||'application/pdf',
+        filename: arq.name || 'relatorio.pdf',
+        mimeType: arq.type||'application/pdf',
         prompt: `Este é um relatório de repasse médico hospitalar (formato SOULMV, ORTTRAM ou similar). A tabela tem colunas como: Conta | Atendimento | Paciente | Atividade | Convênio | Data | Valor.
 
 ${nomeMedico ? `Nome do médico cadastrado: ${nomeMedico}` : ''}
@@ -2610,8 +2623,18 @@ Retorne TODOS os pacientes com atividade CLINICO que você encontrar no relatór
     if(!response.ok) throw new Error('Erro '+response.status);
     const data = await response.json();
     const a = data.analysis || data.data || data;
-    const resultados = a.resultados || a.results || [];
-    console.log('[MedReconcile] Relatório PDF - registros CLINICO encontrados:', resultados.length);
+    return a.resultados || a.results || [];
+  }
+
+  showProcessingOverlay(arquivos.length > 1 ? `Analisando ${arquivos.length} fotos com IA...` : 'Analisando relatório com IA...');
+  try {
+    let resultados = [];
+    for(let i=0; i<arquivos.length; i++){
+      if(arquivos.length > 1) showProcessingOverlay(`Analisando foto ${i+1} de ${arquivos.length}...`);
+      const resultadosDoArquivo = await extrairArquivo(arquivos[i]);
+      resultados = resultados.concat(resultadosDoArquivo);
+    }
+    console.log('[MedReconcile] Relatório(s) - registros CLINICO encontrados no total:', resultados.length);
 
     const nn = s=>String(s||'').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'').replace(/\s+/g,' ').trim();
 
@@ -3046,7 +3069,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v81</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v82</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
