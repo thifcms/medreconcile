@@ -3226,7 +3226,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v91</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v92</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
@@ -3984,16 +3984,32 @@ let tentativasDeCarregarSeguidas = 0;
 let cargaInicialConcluida = false; // ver saveToFirebase() — trava de segurança contra sobrescrever dados reais
 window.ultimoErroSalvamento = null; // usado pelo indicador visual na tela
 
+// Marcador de sincronização pendente GRAVADO NO LOCALSTORAGE (não só em
+// memória) — existe porque a versaoSalvaPendente/versaoConfirmadaNaNuvem
+// citadas acima só protegem DENTRO da mesma sessão do app: se o usuário
+// fechar o app (ou o app for suspenso pelo sistema) ENQUANTO um salvamento
+// ainda está em andamento, essas variáveis são zeradas do zero na próxima
+// abertura, e o app confiaria cegamente na nuvem — que pode não ter recebido
+// aquela última gravação — sobrescrevendo dados locais mais recentes e
+// corretos com uma versão desatualizada da nuvem, sem erro nenhum aparecer.
+// Gravando esse marcador ANTES de tentar salvar, e só removendo DEPOIS de
+// confirmar sucesso, o app consegue perceber isso mesmo depois de reaberto.
+const CHAVE_SYNC_PENDENTE = 'medreconcile_sync_pendente';
+function marcarSyncPendente(){ try{ localStorage.setItem(CHAVE_SYNC_PENDENTE, '1'); }catch{} }
+function limparSyncPendente(){ try{ localStorage.removeItem(CHAVE_SYNC_PENDENTE); }catch{} }
+function haviaSyncPendenteDeSessaoAnterior(){ try{ return localStorage.getItem(CHAVE_SYNC_PENDENTE)==='1'; }catch{ return false; } }
+
 async function loadUserData(uid){
   if(!window.fbLoadData) return;
   try{
     const data = await window.fbLoadData(uid);
+    const temSyncPendenteAntiga = haviaSyncPendenteDeSessaoAnterior();
     if(data){
-      const temMudancaLocalNaoConfirmada = versaoSalvaPendente > versaoConfirmadaNaNuvem;
+      const temMudancaLocalNaoConfirmada = (versaoSalvaPendente > versaoConfirmadaNaNuvem) || temSyncPendenteAntiga;
       if(data.hospitals && !temMudancaLocalNaoConfirmada) state.hospitals = data.hospitals;
       if(data.patients  && !temMudancaLocalNaoConfirmada) state.patients  = data.patients;
       if(temMudancaLocalNaoConfirmada){
-        console.warn('[MedReconcile] Existem mudanças locais ainda não confirmadas na nuvem — pulando sobrescrita de patients/hospitals para não perder dado recente.');
+        console.warn('[MedReconcile] Existem mudanças locais possivelmente não confirmadas na nuvem (desta sessão ou de uma anterior que foi fechada no meio do salvamento) — pulando sobrescrita de patients/hospitals e tentando salvar de novo pra garantir.');
       }
       if(data.profile){
         // O PIN (appPassword) é uma configuração de SEGURANÇA DO DISPOSITIVO,
@@ -4012,6 +4028,13 @@ async function loadUserData(uid){
     if(window.ultimoErroSalvamento && window.ultimoErroSalvamento.tipo === 'carregar'){
       window.ultimoErroSalvamento = null;
       render();
+    }
+    if(temSyncPendenteAntiga){
+      // Havia uma gravação de uma sessão anterior sem confirmação de
+      // sucesso — tenta salvar de novo agora, com o estado local (que já
+      // está carregado do localStorage neste momento), pra garantir que a
+      // nuvem fique igual ao que o usuário via na tela antes de fechar.
+      saveToFirebase();
     }
   }catch(e){
     console.error('Erro ao carregar dados:', e);
@@ -4043,6 +4066,7 @@ async function saveToFirebase(){
     return;
   }
   const minhaVersao = ++versaoSalvaPendente;
+  marcarSyncPendente();
   try{
     await window.fbSaveData(window.currentUser.uid, {
       hospitals: state.hospitals,
@@ -4051,6 +4075,7 @@ async function saveToFirebase(){
       activeHosp: state.activeHosp
     });
     if(minhaVersao > versaoConfirmadaNaNuvem) versaoConfirmadaNaNuvem = minhaVersao;
+    limparSyncPendente();
     if(tentativaDeSalvarAgendada){ clearTimeout(tentativaDeSalvarAgendada); tentativaDeSalvarAgendada = null; }
     tentativasDeSalvarSeguidas = 0;
     if(window.ultimoErroSalvamento){ window.ultimoErroSalvamento = null; render(); }
@@ -4064,6 +4089,8 @@ async function saveToFirebase(){
     if(ehErroPermanente || tentativasDeSalvarSeguidas >= 5){
       // Não adianta ficar tentando de novo sozinho — mostra aviso persistente
       // na tela (não some como um toast) até o usuário tentar manualmente.
+      // O marcador de sync pendente NÃO é limpo aqui de propósito — continua
+      // protegendo contra sobrescrita até uma tentativa realmente funcionar.
       toast('Não foi possível salvar seus dados na nuvem. Veja o aviso na tela inicial.', 'error');
       render();
     } else {
