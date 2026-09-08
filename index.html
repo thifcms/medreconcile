@@ -2167,16 +2167,6 @@ Retorne todos os pacientes encontrados no array "pacientes".`
     toast(friendly,'error');
   }
 }
-function fakeScanning(){
-  toast('Inicializando Audit AI...','info');
-  setTimeout(()=>{
-    state.batchPreview=[
-      {nome:'Roberto Alves Mendes',atendimento:'45022',convenio:'Unimed',data:'2026-06-01'},
-      {nome:'Sandra Lima Rocha',atendimento:'45023',convenio:'Amil',data:'2026-06-02'},
-    ];
-    render();toast('2 etiquetas lidas — revise antes de salvar','success');
-  },1800);
-}
 function setBatchDate(val){
   state.batchDate = val;
   if(state.batchPreview){
@@ -2877,6 +2867,7 @@ function showManualConcil(){
 }
 function markPaidManual(id){
   state.patients = state.patients.map(p=>p.id===id?{...p,status:'PAGO',valorPago:p.valor}:p);
+  saveState();
   render();
   toast('✓ Marcado como pago','success');
 }
@@ -2953,17 +2944,6 @@ function confirmarReverterPeriodo(){
   saveState();
   render();
   toast(`↩ ${n} paciente${n!==1?'s':''} revertido${n!==1?'s':''} pra Pendente. Pode refazer a conciliação desse período.`,'info');
-}
-function fakeConciliacao(){
-  toast('Processando relatório com IA...','info');
-  setTimeout(()=>{
-    state.patients=state.patients.map(p=>{
-      if(p.hospId===state.activeHosp&&p.status!=='PAGO'&&p.status!=='RETORNO'&&Math.random()>0.3)
-        return{...p,status:'PAGO',valorPago:p.valor};
-      return p;
-    });
-    render();toast('✓ Conciliação efetivada!','success');
-  },2000);
 }
 
 // ── CONFIG ────────────────────────────────────────────────────────────────────
@@ -3226,7 +3206,7 @@ function renderConfig(){
     `}
     <button class="btn-d" style="width:100%;padding:14px;border-radius:16px;font-size:15px;" onclick="encerrarSessao()">Encerrar Sessão</button>
 
-    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-07-v92</div>
+    <div style="text-align:center;margin-top:20px;font-size:11px;color:var(--text3);opacity:.6;">Versão do app: 2026-09-08-v93</div>
     <div style="text-align:center;margin-top:6px;font-size:10px;color:var(--text3);opacity:.5;">ID da conta: ${window.currentUser?window.currentUser.uid:'—'}</div>`;
 }
 // ── BIOMETRIA (WebAuthn) ─────────────────────────────────────────────────────
@@ -3424,19 +3404,25 @@ async function buildMedReconcileWorkbook(XLSX){
 }
 
 async function downloadCSV(){
-  // Carrega SheetJS dinamicamente
-  const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
+  try {
+    // Carrega SheetJS dinamicamente
+    const XLSX = await import('https://cdn.sheetjs.com/xlsx-0.20.1/package/xlsx.mjs');
 
-  if(state.hospitals.length === 0){
-    toast('Nenhum hospital cadastrado','error');
-    return;
+    if(state.hospitals.length === 0){
+      toast('Nenhum hospital cadastrado','error');
+      return;
+    }
+
+    const wb = await buildMedReconcileWorkbook(XLSX);
+    XLSX.writeFile(wb, `MedReconcile_${today()}.xlsx`);
+    toast('Excel exportado com sucesso!','success');
+  } catch(e) {
+    console.error('[MedReconcile] Erro ao exportar Excel geral:', e);
+    toast('Erro ao gerar o Excel: '+(e?.message||'motivo desconhecido'),'error');
   }
-
-  const wb = await buildMedReconcileWorkbook(XLSX);
-  XLSX.writeFile(wb, `MedReconcile_${today()}.xlsx`);
-  toast('Excel exportado com sucesso!','success');
 }
 async function downloadInadimplencia(){
+ try {
   const hospSel = document.getElementById('rel-hosp')?.value || 'TODOS';
   const cutoff = new Date();
   cutoff.setDate(cutoff.getDate()-30);
@@ -3517,7 +3503,7 @@ async function downloadInadimplencia(){
       }));
       const ws = XLSX.utils.json_to_sheet(rows);
       ws['!cols'] = [{wch:30},{wch:16},{wch:20},{wch:16},{wch:14},{wch:12},{wch:25},{wch:14}];
-      const sheetName = hosp.name.substring(0,31).replace(/[\/:*?\[\]]/g,'');
+      const sheetName = (hosp.name||'Hospital').substring(0,31).replace(/[\/:*?\[\]]/g,'');
       XLSX.utils.book_append_sheet(wb, ws, sheetName);
     });
   } else {
@@ -3538,9 +3524,14 @@ async function downloadInadimplencia(){
 
   XLSX.writeFile(wb, `Cobranca_${hospNome}_${today()}.xlsx`);
   toast(`Relatório exportado: ${inad.length} pacientes`,'success');
+ } catch(e) {
+   console.error('[MedReconcile] Erro ao exportar relatório de cobrança:', e);
+   toast('Erro ao gerar o relatório: '+(e?.message||'motivo desconhecido'),'error');
+ }
 }
 
 async function downloadPorPeriodoUnidade(){
+ try {
   const hospSel = document.getElementById('exp-periodo-hosp')?.value || 'TODOS';
   const inicio = document.getElementById('exp-periodo-inicio')?.value || '';
   const fim = document.getElementById('exp-periodo-fim')?.value || '';
@@ -3596,6 +3587,10 @@ async function downloadPorPeriodoUnidade(){
   const sufixoPeriodo = (inicio||fim) ? `_${inicio||'inicio'}_a_${fim||'hoje'}` : '';
   XLSX.writeFile(wb, `Pacientes_${hospNome.replace(/[\/:*?\[\]\s]/g,'_')}${sufixoPeriodo}_${today()}.xlsx`);
   toast(`Excel exportado: ${pats.length} pacientes`,'success');
+ } catch(e) {
+   console.error('[MedReconcile] Erro ao exportar pacientes por período/unidade:', e);
+   toast('Erro ao gerar o Excel: '+(e?.message||'motivo desconhecido'),'error');
+ }
 }
 function resetDriveConnection(){
   if(window.setDriveToken) window.setDriveToken(null);
